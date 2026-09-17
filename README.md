@@ -91,8 +91,10 @@ cd ios/AirChatKit && swift test
 | Android 编译 + APK 构建 | ✅ 实测通过（Windows） |
 | Android 真机安装与运行 | ✅ 安装并运行，广播+扫描正常，身份已持久化 |
 | Android ↔ iOS 相互发现 | ✅ 双向发现（Android 能读到 iOS 的广播，iOS 能读到 Android 的 presence 块） |
-| Android ↔ iOS 链路建立 | ✅ 链路可建立；**iOS 侧握手已完成**（拿到 Android 设备 ID 并算出安全码） |
-| Android ↔ iOS 完整互通 | ⏳ Android 尚未收到 iOS 的 `HELLO_ACK`（Android 停在 `ready=false`） |
+| Android ↔ iOS 链路建立 + 握手 | ✅ **`tools/cross_device_test.py` 判定 PASS**：链路就绪、双方 identity 互指、角色镜像 |
+| **Android ↔ iOS 端到端加密一致性** | ✅ 两端独立算出**相同**的 6 位安全码（实测 `242239`），证明 Kotlin/JCA 与 Swift/CryptoKit 字节级一致 |
+| 消息收发（公共频道 / 1:1） | ⏳ 下一步：连接已通，尚未验证消息与 ACK 往返 |
+| 锁屏后台收消息 | ⏳ 未验证 |
 
 跨机自动化测试：`python3 tools/cross_device_test.py`（在接了两台手机的 Mac 上运行）。它会拉起两端、
 解析二者的状态心跳、断言"双向发现 / 链路就绪 / 身份互指 / 角色镜像 / **两端安全码一致**"，并在失败时
