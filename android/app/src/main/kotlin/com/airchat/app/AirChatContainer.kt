@@ -40,13 +40,17 @@ class AirChatContainer(context: Context) {
 
     private val transport = BleTransport(appContext, FanOutLogger(AndroidLogSink(), diagnostics))
 
+    /**
+     * Also to logcat: without this the protocol layer (LinkSession/AirChatNode) is invisible to
+     * `adb logcat`, which made the earlier cross-device failures undiagnosable from the host.
+     */
+    private val logger = FanOutLogger(AndroidLogSink(), diagnostics)
+
     val node = AirChatNode(
         store = store,
         transport = transport,
         scope = scope,
-        // Also to logcat: without this the protocol layer (LinkSession/AirChatNode) is invisible to
-        // `adb logcat`, which made the earlier cross-device failures undiagnosable from the host.
-        logger = FanOutLogger(AndroidLogSink(), diagnostics),
+        logger = logger,
     )
 
     /** Machine-readable heartbeat consumed by tools/cross_device_test.py. */
@@ -80,20 +84,27 @@ class AirChatContainer(context: Context) {
 
     /**
      * Host-driven message injection for tools/cross_device_test.py, e.g.
-     * `adb shell am start -n <pkg>/<activity> --es airchat_selftest "channel:hi|private:secret"`.
+     * `adb shell am start -n <pkg>/<activity> --es airchat_selftest "channel:hi,private:secret"`.
      *
      * Waits for a ready link rather than asking the caller to time it: the link is established by two
      * radios negotiating, so the only reliable trigger is "as soon as we are connected". Only reachable
      * from a debuggable build (see MainActivity).
+     *
+     * The separator is `,` and not `|` on purpose: `adb shell` hands this string to the device's own
+     * shell, which reads an unquoted `|` as a pipe. The extra then arrives truncated at the pipe and
+     * half the scripted script silently never runs - which is exactly how a passing private-message
+     * path looked like a broken one for two rounds. Whatever the separator, the received spec is also
+     * logged so a truncated argument is visible in the log rather than only as a missing message.
      */
     fun runSelfTest(spec: String) {
+        logger.log(TAG, "selftest spec received: $spec")
         scope.launch {
             val ready = withTimeoutOrNull(SELF_TEST_TIMEOUT_MS) {
                 node.state.first { it.readyLinkCount > 0 }
             }
             if (ready == null) return@launch
 
-            for (part in spec.split('|')) {
+            for (part in spec.split(SEPARATOR)) {
                 val separator = part.indexOf(':')
                 if (separator <= 0) continue
                 val kind = part.substring(0, separator).trim()
@@ -101,15 +112,15 @@ class AirChatContainer(context: Context) {
                 // The outcome is logged rather than ignored: a rejected send is otherwise completely
                 // invisible and looks identical to "the peer never received it".
                 when (kind) {
-                    "channel" -> AndroidLogSink().log("SelfTest", "channel -> " + node.postChannelMessage(text))
+                    "channel" -> logger.log(TAG, "channel -> " + node.postChannelMessage(text))
                     "private" -> {
                         val peer = node.state.value.links
                             .firstOrNull { it.ready && it.peerIdHex != null }
                             ?.peerIdHex
                         if (peer == null) {
-                            AndroidLogSink().log("SelfTest", "private skipped: no ready link")
+                            logger.log(TAG, "private skipped: no ready link")
                         } else {
-                            AndroidLogSink().log("SelfTest", "private -> " + node.sendPrivateMessage(peer, text))
+                            logger.log(TAG, "private -> " + node.sendPrivateMessage(peer, text))
                         }
                     }
                 }
@@ -118,6 +129,8 @@ class AirChatContainer(context: Context) {
     }
 
     private companion object {
+        const val TAG = "SelfTest"
+        const val SEPARATOR = ","
         const val SELF_TEST_TIMEOUT_MS = 45_000L
     }
 

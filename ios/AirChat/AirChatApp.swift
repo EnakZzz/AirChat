@@ -44,7 +44,7 @@ final class AppContainer {
 
         #if DEBUG
         // Host-driven message injection for tools/cross_device_test.py:
-        //   devicectl ... -e '{"AIRCHAT_SELFTEST":"channel:hi|private:secret"}'
+        //   devicectl ... -e '{"AIRCHAT_SELFTEST":"channel:hi,private:secret"}'
         // Debug only, so a release build has no way to be told to send anything.
         if let spec = ProcessInfo.processInfo.environment["AIRCHAT_SELFTEST"], !spec.isEmpty {
             runSelfTest(spec)
@@ -57,6 +57,9 @@ final class AppContainer {
     /// Deliberately waits rather than requiring the caller to time it: the link is established by two
     /// radios negotiating, so the only reliable trigger is "as soon as we are connected".
     func runSelfTest(_ spec: String) {
+        // The received spec is logged because a truncated argument is otherwise invisible: it only
+        // shows up much later as a message that never arrived.
+        logger.log("SelfTest", "selftest spec received: \(spec)")
         Task { [node] in
             let deadline = Date().addingTimeInterval(45)
             while Date() < deadline, node.state.readyLinkCount == 0 {
@@ -64,7 +67,10 @@ final class AppContainer {
             }
             guard node.state.readyLinkCount > 0 else { return }
 
-            for part in spec.split(separator: "|") {
+            // The separator is `,` and not `|` on purpose: the Android side receives this same
+            // script through `adb shell`, whose shell reads an unquoted `|` as a pipe and truncates
+            // the extra. Both platforms must therefore agree on a separator with no shell meaning.
+            for part in spec.split(separator: ",") {
                 let pieces = part.split(separator: ":", maxSplits: 1)
                 guard pieces.count == 2 else { continue }
                 let kind = pieces[0].trimmingCharacters(in: .whitespaces)

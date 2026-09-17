@@ -28,7 +28,10 @@ two crypto implementations agree byte for byte.
 Phase 2 exercises the payload path in both directions. Each app is launched with a scripted send
 (iOS: `AIRCHAT_SELFTEST` environment variable; Android: `airchat_selftest` intent extra - both
 honoured only by debug builds), which waits for a ready link and then sends a channel post and a
-private message. The heartbeat carries inbound-message counters, the last text received, and a
+private message. Steps are separated by `,` and **never** by `|`: the Android extra is handed to
+the device's own shell by `adb shell`, which reads an unquoted `|` as a pipe and silently truncates
+the script there. Both apps log the script they received, and the harness asserts on that line, so
+a mangled argument is reported as such instead of as a missing message. The heartbeat carries inbound-message counters, the last text received, and a
 count of outgoing messages that received a DELIVERY_ACK, so the harness can assert:
 
   7. both sides received the other's channel post, by exact text
@@ -62,8 +65,8 @@ import sys
 import time
 
 STATE_MARKER = "AIRCHAT_STATE "
-IOS_SELF_TEST = "channel:hi-from-ios|private:secret-from-ios"
-ANDROID_SELF_TEST = "channel:hi-from-android|private:secret-from-android"
+IOS_SELF_TEST = "channel:hi-from-ios,private:secret-from-ios"
+ANDROID_SELF_TEST = "channel:hi-from-android,private:secret-from-android"
 IOS_EXPECTED = ("hi-from-android", "secret-from-android")
 ANDROID_EXPECTED = ("hi-from-ios", "secret-from-ios")
 DEFAULT_IOS_BUNDLE = "app.airchat.ios"
@@ -139,6 +142,15 @@ def latest_state(path: str, platform: str) -> dict | None:
         if candidate.get("platform") == platform:
             found = candidate
     return found
+
+
+def spec_delivered(path: str, spec: str) -> bool:
+    """True once the app's log shows it received the scripted send verbatim."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            return f"selftest spec received: {spec}" in handle.read()
+    except FileNotFoundError:
+        return False
 
 
 def exchange_complete(state: dict | None, expected: tuple[str, str]) -> bool:
@@ -312,6 +324,15 @@ def main() -> int:
     print()
 
     failures: list[str] = []
+    # Checked before anything else: a script that did not arrive intact explains every downstream
+    # "message never arrived" symptom, and costs a whole round to re-diagnose otherwise.
+    if not spec_delivered(ios_log, IOS_SELF_TEST):
+        failures.append("iOS did not receive the full self-test script")
+    if not spec_delivered(android_log, ANDROID_SELF_TEST):
+        failures.append(
+            "Android did not receive the full self-test script - `adb shell` truncates an intent "
+            "extra at an unquoted '|', so keep the step separator shell-safe"
+        )
     if ios_state is None:
         failures.append("iOS produced no heartbeat")
     if android_state is None:
