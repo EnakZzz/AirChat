@@ -146,8 +146,15 @@ public final class AirChatNode: LinkSessionListener {
     /// Called on the node's serial queue whenever the state changes.
     public var onStateChanged: ((NodeState) -> Void)?
 
-    /// Called on the node's serial queue for every noteworthy event.
-    public var onEvent: ((NodeEvent) -> Void)?
+    /// Event observers, notified on the node's serial queue.
+    ///
+    /// A list rather than a single closure because more than one party legitimately needs the stream
+    /// (the SwiftUI view model and the diagnostic reporter that feeds the cross-device test).
+    private var eventObservers: [(NodeEvent) -> Void] = []
+
+    public func addEventObserver(_ observer: @escaping (NodeEvent) -> Void) {
+        queue.sync { eventObservers.append(observer) }
+    }
 
     public var deviceIdHex: String { identity?.deviceIdHex ?? "" }
 
@@ -747,7 +754,7 @@ public final class AirChatNode: LinkSessionListener {
     // ---------------------------------------------------------------- state
 
     private func emitEvent(_ event: NodeEvent) {
-        onEvent?(event)
+        for observer in eventObservers { observer(event) }
     }
 
     private func setState(_ next: NodeState) {

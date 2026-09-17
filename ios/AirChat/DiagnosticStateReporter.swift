@@ -17,8 +17,37 @@ final class DiagnosticStateReporter {
     private let node: AirChatNode
     private var task: Task<Void, Never>?
 
+    // Counters proving messages actually crossed the link. Inbound counts come from stored messages
+    // and `delivered` from the DELIVERY_ACK that upgrades an outgoing message, so a non-zero
+    // `delivered` on both sides exercises the notification path in both directions.
+    private var channelInbound = 0
+    private var privateInbound = 0
+    private var deliveredOutbound = 0
+    private var lastChannelText = ""
+    private var lastPrivateText = ""
+
     init(node: AirChatNode) {
         self.node = node
+        node.addEventObserver { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .messageStored(let record):
+                let text = String(record.text.prefix(40))
+                if record.direction == MessageDirection.incoming {
+                    if record.kind == MessageKind.channel {
+                        self.channelInbound += 1
+                        self.lastChannelText = text
+                    } else if record.kind == MessageKind.private {
+                        self.privateInbound += 1
+                        self.lastPrivateText = text
+                    }
+                }
+            case .messageStatusChanged(_, let status):
+                if status == MessageStatus.delivered { self.deliveredOutbound += 1 }
+            default:
+                break
+            }
+        }
     }
 
     func start(interval: TimeInterval = 1) {
@@ -49,8 +78,20 @@ final class DiagnosticStateReporter {
             + "\"self\":\"\(state.deviceIdHex)\","
             + "\"status\":\"\(statusName(state.status))\","
             + "\"nearby\":\(state.nearby.count),"
+            + "\"channel\":\(channelInbound),"
+            + "\"private\":\(privateInbound),"
+            + "\"delivered\":\(deliveredOutbound),"
+            + "\"lastChannel\":\(quoted(lastChannelText)),"
+            + "\"lastPrivate\":\(quoted(lastPrivateText)),"
             + "\"links\":[\(links.joined(separator: ","))]}\n"
         FileHandle.standardError.write(Data(line.utf8))
+    }
+
+    private func quoted(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 
     private func statusName(_ status: ChatStatus) -> String {

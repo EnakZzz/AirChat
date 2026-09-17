@@ -2,6 +2,10 @@ package com.airchat.app
 
 import android.util.Log
 import com.airchat.protocol.AirChatNode
+import com.airchat.protocol.MessageDirection
+import com.airchat.protocol.MessageKind
+import com.airchat.protocol.MessageStatus
+import com.airchat.protocol.NodeEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -23,7 +27,42 @@ class DiagnosticStateReporter(
     private val node: AirChatNode,
     private val scope: CoroutineScope,
 ) {
+    // Counters proving messages actually crossed the link. Inbound counts come from stored messages
+    // and `delivered` from the DELIVERY_ACK that upgrades an outgoing message, so a non-zero
+    // `delivered` on both sides exercises the notification path in both directions.
+    private val lock = Any()
+    private var channelInbound = 0
+    private var privateInbound = 0
+    private var deliveredOutbound = 0
+    private var lastChannelText = ""
+    private var lastPrivateText = ""
+
     fun start() {
+        scope.launch {
+            node.events.collect { event ->
+                when (event) {
+                    is NodeEvent.MessageStored -> {
+                        val record = event.record
+                        if (record.direction != MessageDirection.INCOMING) return@collect
+                        val text = record.text.take(40)
+                        synchronized(lock) {
+                            when (record.kind) {
+                                MessageKind.CHANNEL -> { channelInbound++; lastChannelText = text }
+                                MessageKind.PRIVATE -> { privateInbound++; lastPrivateText = text }
+                            }
+                        }
+                    }
+
+                    is NodeEvent.MessageStatusChanged -> {
+                        if (event.status == MessageStatus.DELIVERED) {
+                            synchronized(lock) { deliveredOutbound++ }
+                        }
+                    }
+
+                    else -> Unit
+                }
+            }
+        }
         scope.launch {
             while (isActive) {
                 Log.i(TAG, snapshot())
@@ -34,12 +73,24 @@ class DiagnosticStateReporter(
 
     private fun snapshot(): String {
         val state = node.state.value
+        // Read individually so each value keeps its concrete type: a combined list would widen them
+        // all to Any and the JSON assembly would not compile.
+        val channel = synchronized(lock) { channelInbound }
+        val priv = synchronized(lock) { privateInbound }
+        val delivered = synchronized(lock) { deliveredOutbound }
+        val lastChannel = synchronized(lock) { lastChannelText }
+        val lastPrivate = synchronized(lock) { lastPrivateText }
         return buildString {
             append("AIRCHAT_STATE {")
             append("\"platform\":\"android\",")
             append("\"self\":\"").append(state.deviceIdHex).append("\",")
             append("\"status\":\"").append(state.status.name.lowercase()).append("\",")
             append("\"nearby\":").append(state.nearby.size).append(',')
+            append("\"channel\":").append(channel).append(',')
+            append("\"private\":").append(priv).append(',')
+            append("\"delivered\":").append(delivered).append(',')
+            append("\"lastChannel\":\"").append(escape(lastChannel)).append("\",")
+            append("\"lastPrivate\":\"").append(escape(lastPrivate)).append("\",")
             append("\"links\":[")
             state.links.forEachIndexed { index, link ->
                 if (index > 0) append(',')
@@ -55,6 +106,9 @@ class DiagnosticStateReporter(
             append("]}")
         }
     }
+
+    private fun escape(value: String): String =
+        value.replace("\\", "\\\\").replace("\"", "\\\"")
 
     private companion object {
         const val TAG = "AirChat/State"

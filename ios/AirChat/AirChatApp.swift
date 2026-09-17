@@ -38,6 +38,42 @@ final class AppContainer {
         // Started in init so the heartbeat also runs before the transport is up: that lets the
         // harness distinguish a dead app from a not-yet-connected one.
         reporter.start()
+
+        #if DEBUG
+        // Host-driven message injection for tools/cross_device_test.py:
+        //   devicectl ... -e '{"AIRCHAT_SELFTEST":"channel:hi|private:secret"}'
+        // Debug only, so a release build has no way to be told to send anything.
+        if let spec = ProcessInfo.processInfo.environment["AIRCHAT_SELFTEST"], !spec.isEmpty {
+            runSelfTest(spec)
+        }
+        #endif
+    }
+
+    /// Waits for a ready link, then sends whatever the host asked for.
+    ///
+    /// Deliberately waits rather than requiring the caller to time it: the link is established by two
+    /// radios negotiating, so the only reliable trigger is "as soon as we are connected".
+    func runSelfTest(_ spec: String) {
+        Task { [node] in
+            let deadline = Date().addingTimeInterval(45)
+            while Date() < deadline, node.state.readyLinkCount == 0 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+            guard node.state.readyLinkCount > 0 else { return }
+
+            for part in spec.split(separator: "|") {
+                let pieces = part.split(separator: ":", maxSplits: 1)
+                guard pieces.count == 2 else { continue }
+                let kind = pieces[0].trimmingCharacters(in: .whitespaces)
+                let text = String(pieces[1])
+                if kind == "channel" {
+                    node.postChannelMessage(text)
+                } else if kind == "private",
+                          let peer = node.state.links.first(where: { $0.ready })?.peerIdHex {
+                    node.sendPrivateMessage(peerIdHex: peer, text: text)
+                }
+            }
+        }
     }
 
     var chatStore: ChatStore { store }

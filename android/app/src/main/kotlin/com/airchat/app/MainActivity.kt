@@ -1,5 +1,6 @@
 package com.airchat.app
 
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,6 +21,10 @@ import com.airchat.app.ui.ChatViewModelFactory
  */
 class MainActivity : ComponentActivity() {
 
+    private companion object {
+        const val SELF_TEST_EXTRA = "airchat_selftest"
+    }
+
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,6 +34,13 @@ class MainActivity : ComponentActivity() {
 
         val container = (application as AirChatApp).container
         val controller = RadioController(this, container)
+
+        // Debug-only message injection used by tools/cross_device_test.py. Gated on the debuggable
+        // flag so a release build cannot be told to send anything from outside.
+        val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (debuggable) {
+            intent?.getStringExtra(SELF_TEST_EXTRA)?.takeIf { it.isNotEmpty() }?.let(container::runSelfTest)
+        }
 
         setContent {
             AirChatTheme {

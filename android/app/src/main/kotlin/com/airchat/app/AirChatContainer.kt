@@ -11,6 +11,9 @@ import com.airchat.protocol.FanOutLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -73,6 +76,41 @@ class AirChatContainer(context: Context) {
             started = false
             node.stop()
         }
+    }
+
+    /**
+     * Host-driven message injection for tools/cross_device_test.py, e.g.
+     * `adb shell am start -n <pkg>/<activity> --es airchat_selftest "channel:hi|private:secret"`.
+     *
+     * Waits for a ready link rather than asking the caller to time it: the link is established by two
+     * radios negotiating, so the only reliable trigger is "as soon as we are connected". Only reachable
+     * from a debuggable build (see MainActivity).
+     */
+    fun runSelfTest(spec: String) {
+        scope.launch {
+            val ready = withTimeoutOrNull(SELF_TEST_TIMEOUT_MS) {
+                node.state.first { it.readyLinkCount > 0 }
+            }
+            if (ready == null) return@launch
+
+            for (part in spec.split('|')) {
+                val separator = part.indexOf(':')
+                if (separator <= 0) continue
+                val kind = part.substring(0, separator).trim()
+                val text = part.substring(separator + 1)
+                when (kind) {
+                    "channel" -> node.postChannelMessage(text)
+                    "private" -> node.state.value.links
+                        .firstOrNull { it.ready && it.peerIdHex != null }
+                        ?.peerIdHex
+                        ?.let { node.sendPrivateMessage(it, text) }
+                }
+            }
+        }
+    }
+
+    private companion object {
+        const val SELF_TEST_TIMEOUT_MS = 45_000L
     }
 
     /**

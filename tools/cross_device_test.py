@@ -25,6 +25,16 @@ streams. It then asserts:
 Assertion 5 is the important one: an equal safety code across iOS and Android is proof that the
 two crypto implementations agree byte for byte.
 
+Phase 2 exercises the payload path in both directions. Each app is launched with a scripted send
+(iOS: `AIRCHAT_SELFTEST` environment variable; Android: `airchat_selftest` intent extra - both
+honoured only by debug builds), which waits for a ready link and then sends a channel post and a
+private message. The heartbeat carries inbound-message counters, the last text received, and a
+count of outgoing messages that received a DELIVERY_ACK, so the harness can assert:
+
+  7. both sides received the other's channel post, by exact text
+  8. both sides decrypted the other's private message, by exact text  (cross-platform E2EE)
+  9. both sides received a delivery ACK                    (notification path, both directions)
+
 Usage
 -----
     # both phones unlocked and connected to this Mac
@@ -52,6 +62,10 @@ import sys
 import time
 
 STATE_MARKER = "AIRCHAT_STATE "
+IOS_SELF_TEST = "channel:hi-from-ios|private:secret-from-ios"
+ANDROID_SELF_TEST = "channel:hi-from-android|private:secret-from-android"
+IOS_EXPECTED = ("hi-from-android", "secret-from-android")
+ANDROID_EXPECTED = ("hi-from-ios", "secret-from-ios")
 DEFAULT_IOS_BUNDLE = "app.airchat.ios"
 DEFAULT_ANDROID_PKG = "com.airchat.app.debug"
 DEFAULT_ACTIVITY = "com.airchat.app.MainActivity"
@@ -125,6 +139,20 @@ def latest_state(path: str, platform: str) -> dict | None:
         if candidate.get("platform") == platform:
             found = candidate
     return found
+
+
+def exchange_complete(state: dict | None, expected: tuple[str, str]) -> bool:
+    """True once this side has received, decrypted and acknowledged everything it should have."""
+    if not state:
+        return False
+    channel_text, private_text = expected
+    return (
+        state.get("channel", 0) >= 1
+        and state.get("private", 0) >= 1
+        and state.get("delivered", 0) >= 1
+        and state.get("lastChannel") == channel_text
+        and state.get("lastPrivate") == private_text
+    )
 
 
 def ready_state(state: dict | None) -> dict | None:
@@ -242,10 +270,13 @@ def main() -> int:
 
     ios_process = subprocess.Popen(
         ["xcrun", "devicectl", "device", "process", "launch", "--console",
-         "--terminate-existing", "--device", ios_udid, args.ios_bundle],
+         "--terminate-existing", "--device", ios_udid,
+         "-e", json.dumps({"AIRCHAT_SELFTEST": IOS_SELF_TEST}),
+         args.ios_bundle],
         stdout=open(ios_log, "w"), stderr=subprocess.STDOUT, text=True,
     )
-    run(adb + ["shell", "am", "start", "-n", f"{args.android_package}/{args.android_activity}"])
+    run(adb + ["shell", "am", "start", "-n", f"{args.android_package}/{args.android_activity}",
+               "--es", "airchat_selftest", ANDROID_SELF_TEST])
     android_process = subprocess.Popen(
         adb + ["logcat", "-v", "brief"], stdout=open(android_log, "w"),
         stderr=subprocess.STDOUT, text=True,
@@ -257,7 +288,9 @@ def main() -> int:
         while time.time() < deadline:
             ios_state = latest_state(ios_log, "ios") or ios_state
             android_state = latest_state(android_log, "android") or android_state
-            if ready_state(ios_state) and ready_state(android_state):
+            if (ready_state(ios_state) and ready_state(android_state)
+                    and exchange_complete(ios_state, IOS_EXPECTED)
+                    and exchange_complete(android_state, ANDROID_EXPECTED)):
                 break
             time.sleep(2)
         # one extra settling period so both heartbeats reflect the connected state
@@ -313,6 +346,26 @@ def main() -> int:
                     "crypto implementations do not agree, see docs/protocol.md section 10"
                 )
 
+    if not failures:
+        ios_link = ready_state(ios_state)
+        android_link = ready_state(android_state)
+        for state, expected, name in ((ios_state, IOS_EXPECTED, "iOS"), (android_state, ANDROID_EXPECTED, "Android")):
+            channel_text, private_text = expected
+            if state.get("channel", 0) < 1:
+                failures.append(f"{name} received no channel post")
+            elif state.get("lastChannel") != channel_text:
+                failures.append(
+                    f"{name} channel text mismatch: {state.get('lastChannel')!r} != {channel_text!r}"
+                )
+            if state.get("private", 0) < 1:
+                failures.append(f"{name} received no private message")
+            elif state.get("lastPrivate") != private_text:
+                failures.append(
+                    f"{name} private text mismatch: {state.get('lastPrivate')!r} != {private_text!r}"
+                )
+            if state.get("delivered", 0) < 1:
+                failures.append(f"{name} never received a delivery ACK for its own message")
+
     if failures:
         print("RESULT: FAIL")
         for item in failures:
@@ -332,6 +385,12 @@ def main() -> int:
         f"<-> Android(central={android_link['central']}, mtu={android_link['mtu']})")
     log(f"  identity exchange     : iOS peer={ios_link['peer']} , Android peer={android_link['peer']}")
     log(f"  safety code agreement : {ios_code} (identical on both platforms)")
+    log(f"  channel message       : iOS got {ios_state.get('lastChannel')!r}, "
+        f"Android got {android_state.get('lastChannel')!r}")
+    log(f"  private message (E2EE): iOS decrypted {ios_state.get('lastPrivate')!r}, "
+        f"Android decrypted {android_state.get('lastPrivate')!r}")
+    log(f"  delivery acks         : iOS={ios_state.get('delivered')}, "
+        f"Android={android_state.get('delivered')}")
     return 0
 
 

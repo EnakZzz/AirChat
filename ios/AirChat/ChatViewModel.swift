@@ -47,7 +47,7 @@ final class ChatViewModel: ObservableObject {
                 self?.reload()
             }
         }
-        container.node.onEvent = { [weak self] event in
+        container.node.addEventObserver { [weak self] event in
             Task { @MainActor in
                 self?.handle(event)
             }
