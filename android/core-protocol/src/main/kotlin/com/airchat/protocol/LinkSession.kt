@@ -106,6 +106,7 @@ class LinkSession(
     fun onBytes(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size) {
         if (isTerminal) return
         lastInboundAtMs = clock()
+        logger.log(TAG, "inbound $length byte(s) on link ${link.linkId}")
         when (val outcome = framer.push(bytes, offset, length)) {
             is FramingOutcome.Fatal -> {
                 fail("framing error: ${outcome.message}")

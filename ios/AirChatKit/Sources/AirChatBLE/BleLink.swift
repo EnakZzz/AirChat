@@ -242,12 +242,16 @@ internal final class BleLink: Link {
     }
 
     private func notifyAsPeripheral(_ chunk: Chunk) -> Bool {
-        guard let server, let central else { return false }
+        guard let server, central != nil else { return false }
         guard let characteristic = chunk.control ? serverCharacteristicCtrl : serverCharacteristicTx else {
             return false
         }
+        // `onSubscribedCentrals: nil` sends to every subscribed central. This link has exactly one
+        // peer, so naming a specific CBCentral adds no information but does add a failure mode:
+        // CoreBluetooth hands over a new CBCentral object on every reconnect, and addressing a
+        // stale one drops the notification with no error and no deferred callback.
         // updateValue returns false when the peripheral manager cannot accept more data right now.
-        return server.updateValue(chunk.bytes, for: characteristic, onSubscribedCentrals: [central])
+        return server.updateValue(chunk.bytes, for: characteristic, onSubscribedCentrals: nil)
     }
 
     /// Central role: our write completed.

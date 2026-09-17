@@ -628,7 +628,17 @@ class BleTransport(
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             @Suppress("DEPRECATION")
             val value = characteristic.value
-            onHandler { linkFor(gatt)?.onInbound(value) }
+            onHandler {
+                // Below API 33 this is the overload the framework calls, so it must be instrumented
+                // as well: logging only the ByteArray variant made the previous run look like
+                // "no notification arrived" when in fact only the log was missing.
+                logger.log(
+                    TAG,
+                    "inbound notification (legacy) on ${characteristic.uuid} " +
+                        "(${value?.size ?: 0} bytes)",
+                )
+                linkFor(gatt)?.onInbound(value)
+            }
         }
 
         override fun onCharacteristicChanged(
