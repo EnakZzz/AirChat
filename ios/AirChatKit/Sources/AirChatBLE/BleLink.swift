@@ -38,7 +38,18 @@ internal final class BleLink: Link {
     }
 
     private var outbound: [Chunk] = []
+    /// Central role only: a write-with-response has a real completion callback, so exactly one write
+    /// may be outstanding.
     private var inFlight = false
+
+    /// Peripheral role flow control.
+    ///
+    /// `CBPeripheralManagerDelegate` has NO "notification sent" callback - that is an Android-only
+    /// concept. The only backpressure signal is `updateValue` returning false. Waiting for a
+    /// completion that never arrives stalls the queue after the very first chunk: the peer received
+    /// one 20-byte fragment of a ~97-byte HELLO_ACK and then nothing, which was the entire
+    /// cross-platform connection failure.
+    private var transmitReady = true
 
     private(set) var closed = false
     private(set) var readyForTraffic = false
@@ -220,16 +231,32 @@ internal final class BleLink: Link {
     // ------------------------------------------------------------- outbound
 
     private func drainOutbound() {
-        guard !closed, !inFlight, !outbound.isEmpty, readyForTraffic else { return }
-        let chunk = outbound[0]
-        let written = isCentral ? writeAsCentral(chunk) : notifyAsPeripheral(chunk)
-        if written {
-            outbound.removeFirst()
-            inFlight = true
-        } else {
-            // Leave it at the head and retry from the next callback instead of corrupting the
-            // frame stream by skipping a chunk.
-            logger.log("BleLink", "write to \(linkId) deferred")
+        guard !closed, !outbound.isEmpty, readyForTraffic else { return }
+
+        if isCentral {
+            guard !inFlight else { return }
+            let chunk = outbound[0]
+            if writeAsCentral(chunk) {
+                outbound.removeFirst()
+                inFlight = true
+            } else {
+                logger.log("BleLink", "write to \(linkId) deferred")
+            }
+            return
+        }
+
+        // Peripheral role: keep handing chunks to CoreBluetooth while it accepts them, and stop only
+        // when it reports backpressure. It buffers internally, so this both unblocks the queue and
+        // gives better throughput than one-chunk-at-a-time ever did.
+        guard transmitReady else { return }
+        while let chunk = outbound.first {
+            if notifyAsPeripheral(chunk) {
+                outbound.removeFirst()
+            } else {
+                transmitReady = false
+                logger.log("BleLink", "transmit queue full on \(linkId); waiting for ready callback")
+                return
+            }
         }
     }
 
@@ -265,6 +292,7 @@ internal final class BleLink: Link {
 
     /// Peripheral role: the transmit queue has room again.
     func onPeripheralManagerReady() {
+        transmitReady = true
         drainOutbound()
     }
 
