@@ -82,11 +82,13 @@ cd ios/AirChatKit && swift test
 
 | 项目 | 状态 |
 | --- | --- |
-| 协议层（帧、分片、加密、会话、节点） | ✅ 56 个测试通过，含 RFC 官方向量 |
-| Android 编译 + lint + debug/release APK | ✅ 本机实测通过 |
-| Android 真机（发现/连接/后台收消息） | ⏳ 需要真机，模拟器不支持 BLE 外设与扫描 |
-| iOS 编译 | ⏳ 需要 Mac（本机无 Xcode），见 `ios/README.md` |
-| Android ↔ iOS 互通 | ⏳ 需要 Mac + 双端真机 |
+| 协议层 Kotlin（Windows / JDK 17） | ✅ 56 个测试通过，含 RFC 5869 / 8439 官方向量 |
+| 协议层 Swift（macOS 27 + Xcode 27 / Swift 6.4） | ✅ 50 个测试通过，读取同一批 `testdata/` 向量 |
+| Android 编译 + lint + debug/release APK | ✅ 实测通过 |
+| iOS 编译（iOS SDK 27.0，模拟器 SDK） | ✅ `xcodebuild` BUILD SUCCEEDED |
+| iOS 编译（真机 arm64） | ⚠️ 代码编译通过；卡在开发者账号签名（见 `ios/README.md` 排障） |
+| Android 真机安装与运行 | ⏳ 设备侧 `adb shell` 无响应，需先在手机上确认调试授权 |
+| Android ↔ iOS 实际互通 | ⏳ 取决于上两项 |
 
 ## 安全模型
 

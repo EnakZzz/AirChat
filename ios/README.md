@@ -27,6 +27,22 @@ open AirChat.xcodeproj
 
 真机联调需要**两台**设备：Android ↔ Android、Android ↔ iOS、iOS ↔ iOS 三种组合。
 
+### 命令行真机构建（无需打开 Xcode）
+
+```bash
+cd ios
+xcodegen generate
+xcodebuild -project AirChat.xcodeproj -scheme AirChat \
+  -destination "platform=iOS,id=<DEVICE_UDID>" \
+  -configuration Debug -derivedDataPath build/dd \
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+  DEVELOPMENT_TEAM=<YOUR_TEAM_ID> build
+xcrun devicectl device install app --device <DEVICE_UDID> build/dd/Build/Products/Debug-iphoneos/AirChat.app
+```
+
+`DEVELOPMENT_TEAM` 刻意只走命令行，不写进 `project.yml`，避免把个人团队 ID 提交到公开仓库。
+`<DEVICE_UDID>` 可用 `xcrun xctrace list devices`（硬件 UDID）或 `xcrun devicectl list devices` 查看。
+
 ## 关于 iOS 26 / SwiftUI 的取舍
 
 代码只使用长期稳定的 SwiftUI / CoreBluetooth / CryptoKit API，目的是**第一次就能编译通过**：
@@ -79,8 +95,12 @@ ios/
 - **AEAD 细节**：CryptoKit 的 `SealedBox.combined` 会在前面带上 nonce，而 AirChat 把 nonce 放在
   帧头，所以显式拼接 `ciphertext + tag`。这是最容易写错、也最难发现的一处互通陷阱，测试里有
   针对性的断言。
-- **公钥编码**：CryptoKit 的 `rawRepresentation` 就是 `0x04 || X || Y` 的 65 字节未压缩点，正好
-  与 Android（JCA `ECPoint` 展开）一致。
+- **公钥编码（实测数据，别猜）**：在 macOS 27 / Xcode 27 上实测，
+  `P256.KeyAgreement.PublicKey.rawRepresentation` 是 **64** 字节（`X || Y`，无前置字节），
+  只有 `x963Representation` 才是协议要求的 **65** 字节 `0x04 || X || Y`；而私钥的
+  `rawRepresentation` 是 32 字节标量。三者极易混淆，因此代码里分别叫
+  `publicKeyBytes`（x9.63）与 `privateKeyScalar`，不共用名字。用错会导致每个 HELLO 都被对端
+  拒绝，且已保存的身份无法重新加载。
 
 ## 后台行为（必须知情）
 
@@ -93,6 +113,9 @@ ios/
 
 | 现象 | 原因与处理 |
 | --- | --- |
+| `error: Device "…" isn't registered in your developer account` | 加 `-allowProvisioningDeviceRegistration` 让 xcodebuild 注册设备，或在 Xcode 里第一次 Run 时让它自动注册。命令行构建示例见下方。 |
+| `error: No Account for Team "X"` | 钥匙串里的 Apple Development 证书属于团队 X，但 Xcode 登录的账号不是 X。用拥有该证书的 Apple ID 登录 Xcode，或改为让 Xcode 为它认识的那个团队签发一张新证书。 |
+| `Command CodeSign failed`，且日志里 profile 的 team 与 `Signing Identity` 的团队不一致 | 同一个根因：证书与描述文件必须属于同一团队。Xcode 的自动签名会按证书名挑选，同名不同团队时会挑错。 |
 | `swift test` 报找不到 testdata | 设置 `AIRCHAT_TESTDATA_DIR=/path/to/repo/testdata` |
 | Xcode 报签名错误 | 在 Signing & Capabilities 里选你自己的 Team |
 | 真机看不到对端 | 确认两台都授予了蓝牙权限、蓝牙已开、距离 10–50 米；打开设置页看诊断日志 |
