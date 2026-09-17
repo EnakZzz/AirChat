@@ -89,8 +89,14 @@ cd ios/AirChatKit && swift test
 | iOS 真机编译 + 安装（iPhone 12 / iOS 27） | ✅ `BUILD SUCCEEDED` + `devicectl` 安装成功 |
 | iOS 真机运行 | ✅ 启动、广播+扫描已运行、身份已持久化（修复了一次启动闪退，见下） |
 | Android 编译 + APK 构建 | ✅ 实测通过（Windows） |
-| Android 真机安装与运行 | ⏳ Mac 的 USB 连接不稳定（adb 报 `no devices/emulators found`），待重插数据线 |
-| Android ↔ iOS 实际互通 | ⏳ 取决于上一项 |
+| Android 真机安装与运行 | ✅ 安装并运行，广播+扫描正常，身份已持久化 |
+| Android ↔ iOS 相互发现 | ✅ 双向发现（Android 能读到 iOS 的广播，iOS 能读到 Android 的 presence 块） |
+| Android ↔ iOS 链路建立 | ✅ 链路可建立；**iOS 侧握手已完成**（拿到 Android 设备 ID 并算出安全码） |
+| Android ↔ iOS 完整互通 | ⏳ Android 尚未收到 iOS 的 `HELLO_ACK`（Android 停在 `ready=false`） |
+
+跨机自动化测试：`python3 tools/cross_device_test.py`（在接了两台手机的 Mac 上运行）。它会拉起两端、
+解析二者的状态心跳、断言"双向发现 / 链路就绪 / 身份互指 / 角色镜像 / **两端安全码一致**"，并在失败时
+直接给出卡在哪一步以及下一步该查什么。上述结论全部由该脚本与设备侧日志得出，不是目测。
 
 真机首跑发现并修复的两个平台级问题（不是猜测，都有设备侧证据）：
 

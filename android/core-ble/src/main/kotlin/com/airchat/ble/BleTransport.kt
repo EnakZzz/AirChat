@@ -636,7 +636,13 @@ class BleTransport(
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray,
         ) {
-            onHandler { linkFor(gatt)?.onInbound(value) }
+            onHandler {
+                logger.log(
+                    TAG,
+                    "inbound notification on ${characteristic.uuid} (${value.size} bytes)",
+                )
+                linkFor(gatt)?.onInbound(value)
+            }
         }
     }
 
