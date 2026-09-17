@@ -296,7 +296,7 @@ public final class AirChatNode: LinkSessionListener {
             if let rejection = validateOutgoingText(body) { return .rejected(rejection) }
             guard let me = identity else { return .rejected("身份尚未就绪") }
 
-            guard let peerId = try? ByteOps.fromHex(peerIdHex) else { return .rejected("设备标识无效") }
+            guard let peerId = ByteOps.fromHexOrNil(peerIdHex) else { return .rejected("设备标识无效") }
             guard peerId != me.deviceId else { return .rejected("无法给自己发消息") }
 
             if let peerRecord = try? store.getPeer(peerId),
@@ -340,7 +340,7 @@ public final class AirChatNode: LinkSessionListener {
     /// Records the user's verdict on the safety code and tells the peer.
     public func confirmSafetyCode(peerIdHex: String, accepted: Bool) {
         queue.sync {
-            guard let peerId = try? ByteOps.fromHex(peerIdHex) else { return }
+            guard let peerId = ByteOps.fromHexOrNil(peerIdHex) else { return }
             let trustState = accepted ? TrustState.trusted : TrustState.rejected
             try? store.setTrustState(peerId, trustState: trustState)
             for session in sessions.values where session.peerDeviceIdHex == peerIdHex {
@@ -355,7 +355,7 @@ public final class AirChatNode: LinkSessionListener {
     public func sendTyping(peerIdHex: String?, active: Bool) {
         queue.sync {
             if let peerIdHex {
-                guard let peerId = try? ByteOps.fromHex(peerIdHex) else { return }
+                guard let peerId = ByteOps.fromHexOrNil(peerIdHex) else { return }
                 // first(where:) already returns an Optional; no extra chaining is needed.
                 if let session = sessions.values.first(where: {
                     $0.peerDeviceIdHex == peerIdHex && $0.isReady

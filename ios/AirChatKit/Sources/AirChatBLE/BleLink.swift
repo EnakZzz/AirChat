@@ -1,6 +1,10 @@
 import AirChatProtocol
-import CoreBluetooth
 import Foundation
+
+// CBPeripheralManager is iOS-only, so this whole transport is compiled for iOS and replaced by a
+// stub elsewhere. That is what lets `swift test` build the package on macOS.
+#if os(iOS)
+import CoreBluetooth
 
 /// One BLE GATT connection, exposed to the protocol layer as a `Link`.
 ///
@@ -171,7 +175,7 @@ internal final class BleLink: Link {
     }
 
     /// A remote central subscribed or unsubscribed at the CoreBluetooth level.
-    func notePeripheralSubscription(characteristic: CBMutableCharacteristic, enabled: Bool) {
+    func notePeripheralSubscription(characteristic: CBCharacteristic, enabled: Bool) {
         if characteristic.uuid == BleUuids.ctrl {
             ctrlSubscribed = enabled
         } else if characteristic.uuid == BleUuids.tx {
@@ -248,3 +252,5 @@ internal final class BleLink: Link {
         onTerminated(self, status)
     }
 }
+
+#endif // os(iOS)

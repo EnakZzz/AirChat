@@ -20,9 +20,10 @@ open AirChat.xcodeproj
 # 4. 在 Xcode 里设置你的 Development Team（Signing & Capabilities），选真机运行
 ```
 
-`swift test` 之所以能脱离 Xcode 运行，是因为测试目标只依赖 `AirChatProtocol`——它不含
-CoreBluetooth 与 UIKit。`AirChatBLE` 用到了 `CBPeripheralManager`，只能在 iOS 上编译，测试
-不需要它。
+`swift test` 之所以能脱离 Xcode 运行，是因为 `AirChatBLE` 的外设部分被 `#if os(iOS)` 包起来，
+在 macOS 上会退化成一个只报告"不支持"的 stub。这是必需的：SwiftPM 在 `swift test` 时会构建包内
+**所有** target，而不是只构建测试的依赖；如果 `AirChatBLE` 直接引用 `CBPeripheralManager`，
+整包在 macOS 上根本编译不过，协议测试也就无法脱离真机运行。
 
 真机联调需要**两台**设备：Android ↔ Android、Android ↔ iOS、iOS ↔ iOS 三种组合。
 

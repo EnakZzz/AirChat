@@ -1,6 +1,9 @@
 import AirChatProtocol
-import CoreBluetooth
 import Foundation
+
+// See BleLink: the peripheral role is iOS-only.
+#if os(iOS)
+import CoreBluetooth
 
 /// iOS BLE transport: advertises, scans, hosts a GATT server and opens GATT client connections,
 /// implementing the discovery and connect-direction rules of `docs/protocol.md` sections 4 and 5.
@@ -703,3 +706,31 @@ extension BleTransport: CBPeripheralDelegate {
         }
     }
 }
+
+
+#else
+
+/// Non-iOS stub.
+///
+/// `CBPeripheralManager` does not exist on macOS, so the real transport cannot be built there.
+/// Providing a stub keeps the package buildable on every declared platform, which is what allows
+/// `swift test` (and therefore the protocol verification) to run without an iOS device or a
+/// simulator.
+public final class BleTransport: Transport {
+
+    public let ticket: Int = AirChatCrypto.randomTicket()
+
+    public init(logger: AirChatLogger = NoopLogger(), clock: @escaping () -> Int64 = { _ in 0 }) {}
+
+    public func setEventHandler(_ handler: @escaping (TransportEvent) -> Void) {
+        handler(.status(.bluetoothUnavailable, "此平台不支持蓝牙 LE（AirChat 仅支持 iOS 与 Android）"))
+    }
+
+    public func start() {}
+
+    public func stop() {}
+
+    public func updatePresence(protocolVersion: Int, capabilities: Int) {}
+}
+
+#endif // os(iOS)

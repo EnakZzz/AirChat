@@ -149,6 +149,25 @@ public enum ByteOps {
         return out
     }
 
+    /// Failable variant for **untrusted** input: device ids arriving from storage, the protocol or
+    /// the UI must never be able to crash the app with a malformed string.
+    ///
+    /// `fromHex` keeps its precondition-based contract and stays the right choice for constants
+    /// and test vectors, where a bad value is a programming error rather than user data.
+    public static func fromHexOrNil(_ hex: String) -> Data? {
+        let clean = hex.filter { !$0.isWhitespace }
+        guard !clean.isEmpty, clean.count % 2 == 0 else { return nil }
+        var out = Data(capacity: clean.count / 2)
+        var index = clean.startIndex
+        while index < clean.endIndex {
+            let next = clean.index(index, offsetBy: 2)
+            guard let byte = UInt8(clean[index..<next], radix: 16) else { return nil }
+            out.append(byte)
+            index = next
+        }
+        return out
+    }
+
     public static func concat(_ parts: Data...) -> Data {
         var out = Data()
         out.reserveCapacity(parts.reduce(0) { $0 + $1.count })

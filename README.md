@@ -72,7 +72,7 @@ Android 模块划分把协议逻辑做成**纯 JVM**，因此不需要真机就�
 brew install xcodegen
 cd ios && xcodegen generate && open AirChat.xcodeproj
 
-# 不需要 Xcode、不需要模拟器即可跑协议测试（测试只依赖与平台无关的 AirChatProtocol）
+# 不需要 Xcode、不需要模拟器、不需要真机即可跑协议测试
 cd ios/AirChatKit && swift test
 ```
 
