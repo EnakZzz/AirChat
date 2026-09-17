@@ -113,9 +113,11 @@ class BleTransport(
             registerAdapterReceiver()
             val problem = diagnoseAdapter()
             if (problem != null) {
+                logger.log(TAG, "start blocked: ${problem.message}")
                 emit(problem)
                 return@onHandler
             }
+            logger.log(TAG, "start: adapter ready (ticket=$ticket), opening GATT server and radio")
             openGattServer()
             startAdvertising()
             startScanning()

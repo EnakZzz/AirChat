@@ -34,6 +34,12 @@ if (-not $GradleArgs -or $GradleArgs.Count -eq 0) {
     $GradleArgs = @("projects")
 }
 
-$gradlew = Join-Path $androidDir "gradlew.bat"
-& $gradlew @GradleArgs
-exit $LASTEXITCODE
+# Gradle treats the *current* directory as the project directory, so the helper must run from
+# android/ regardless of where the caller happened to be.
+Push-Location $androidDir
+try {
+    & (Join-Path $androidDir "gradlew.bat") @GradleArgs
+    exit $LASTEXITCODE
+} finally {
+    Pop-Location
+}

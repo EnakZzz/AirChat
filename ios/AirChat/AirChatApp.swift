@@ -13,17 +13,26 @@ final class AppContainer {
     let node: AirChatNode
     private let store: SqliteChatStore
 
+    /// Machine-readable heartbeat consumed by tools/cross_device_test.py.
+    private let reporter: DiagnosticStateReporter
+
     init() {
         let logger = FanOutLogger(OsLogger(), diagnostics)
+        let store: SqliteChatStore
         do {
-            let store = try SqliteChatStore(path: try SqliteChatStore.defaultPath())
-            self.store = store
-            node = AirChatNode(store: store, transport: BleTransport(logger: logger), logger: logger)
+            store = try SqliteChatStore(path: try SqliteChatStore.defaultPath())
         } catch {
             // Storage is the one dependency that cannot be absent: without it identity and message
             // history would silently reset on every launch.
             fatalError("cannot open the AirChat database: \(error)")
         }
+        self.store = store
+        let node = AirChatNode(store: store, transport: BleTransport(logger: logger), logger: logger)
+        self.node = node
+        self.reporter = DiagnosticStateReporter(node: node)
+        // Started in init so the heartbeat also runs before the transport is up: that lets the
+        // harness distinguish a dead app from a not-yet-connected one.
+        reporter.start()
     }
 
     var chatStore: ChatStore { store }

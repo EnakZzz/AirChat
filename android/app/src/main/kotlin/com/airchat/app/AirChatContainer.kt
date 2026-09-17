@@ -44,8 +44,18 @@ class AirChatContainer(context: Context) {
         logger = diagnostics,
     )
 
+    /** Machine-readable heartbeat consumed by tools/cross_device_test.py. */
+    private val reporter = DiagnosticStateReporter(node, scope)
+
     private val lifecycleMutex = Mutex()
     private var started = false
+
+    init {
+        // Started here rather than in [ensureStarted] so the heartbeat also runs when the service
+        // has not been started yet: that lets the harness distinguish a dead app from a
+        // not-yet-connected one.
+        reporter.start()
+    }
 
     suspend fun ensureStarted() {
         lifecycleMutex.withLock {
