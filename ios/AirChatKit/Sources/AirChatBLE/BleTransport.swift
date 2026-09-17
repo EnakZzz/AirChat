@@ -576,11 +576,16 @@ extension BleTransport: CBPeripheralManagerDelegate {
         }
     }
 
-    /// Creates the peripheral-side link on first contact with a central.
+    /// Creates the peripheral-side link on first contact with a central, and refreshes the stored
+    /// central on every later contact (a reconnect produces a new CBCentral for the same
+    /// identifier - see BleLink.updateCentral).
     private func ensurePeripheralLink(central: CBCentral) {
         let identifier = central.identifier.uuidString
         let key = peripheralKey(identifier)
-        guard linksByKey[key] == nil else { return }
+        if let existing = linksByKey[key] {
+            existing.updateCentral(central)
+            return
+        }
         guard let peripheralManager, let ctrl = ctrlCharacteristic, let tx = txCharacteristic else { return }
         guard links.count < AirChatProtocol.maxLinks else {
             emit(.status(.nearbyFull, "附近人数已满（上限 \(AirChatProtocol.maxLinks)）"))

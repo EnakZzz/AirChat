@@ -121,6 +121,20 @@ internal final class BleLink: Link {
         evaluatePeripheralReadiness()
     }
 
+    /// Replaces the remote central behind this link.
+    ///
+    /// CoreBluetooth hands out a **new** `CBCentral` object every time a peer reconnects, even
+    /// though its identifier is unchanged. Because links are keyed by identifier, a reconnect reuses
+    /// this link - so without refreshing `central`, `updateValue(_:for:onSubscribedCentrals:)` keeps
+    /// addressing the previous, now-disconnected object. The notification is then dropped with no
+    /// error and no deferred callback, which is exactly how the peer ended up receiving nothing:
+    /// verified by `inbound notification` never appearing in the Android log while iOS reported no
+    /// send failure at all.
+    func updateCentral(_ newCentral: CBCentral) {
+        guard !closed else { return }
+        central = newCentral
+    }
+
     // -------------------------------------------------------- central wiring
 
     func bindCentral(peripheral: CBPeripheral, characteristics: [CBCharacteristic]) {
@@ -168,7 +182,13 @@ internal final class BleLink: Link {
 
     private func evaluatePeripheralReadiness() {
         guard !isCentral, !closed else { return }
-        guard ctrlSubscribed && txSubscribed && !readyForTraffic else { return }
+        guard ctrlSubscribed && txSubscribed else {
+            // A reconnect unsubscribes and re-subscribes, so readiness must be re-armable rather
+            // than latching on for the lifetime of the link.
+            readyForTraffic = false
+            return
+        }
+        guard !readyForTraffic else { return }
         readyForTraffic = true
         logger.log("BleLink", "peripheral \(linkId) ready (central subscribed to CTRL and TX)")
         drainOutbound()
