@@ -1,0 +1,12 @@
+{
+  "curve": "secp256r1",
+  "alice": {
+    "privateKeyHex": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+    "publicKeyHex": "04b5a104b6caadfa15a6fb9eb3939237284d404e9d9486b706411457a16f12e84a18bbebd97e525867075442bd530ea4d29ee7ad873a82a62e804be3c08e34c9d6"
+  },
+  "bob": {
+    "privateKeyHex": "f0e1d2c3b4a5968778695a4b3c2d1e0ff0e1d2c3b4a5968778695a4b3c2d1e0f",
+    "publicKeyHex": "04d2c678c73504952fcbc5907fe45baec2f77eb491c8514492b7b41f62eb05bf9288af2c87ca4f3fc574d3482e99912b8c3e666337cd057887b2db45efcc2f88c8"
+  },
+  "sharedSecretHex": "8d4d09a35e39c010ad24e9137f587fac683fc7762ec4386ae2f5a205efe09c38"
+}

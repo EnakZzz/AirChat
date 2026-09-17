@@ -1,0 +1,32 @@
+# --- repository-wide ---
+.tmp/
+*.log
+
+# --- Android / Gradle ---
+android/local.properties
+android/.gradle/
+android/build/
+android/*/build/
+android/.kotlin/
+android/**.apk
+android/**.aab
+android/captures/
+.idea/
+*.iml
+.kotlin/
+
+# --- iOS / Xcode ---
+ios/*.xcodeproj/
+ios/*.xcworkspace/
+ios/.build/
+ios/**/.build/
+ios/DerivedData/
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+*.ipa
+*.dSYM.zip
+.DS_Store
+
+# --- tooling ---
+__pycache__/
+*.pyc

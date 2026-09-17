@@ -1,0 +1,17 @@
+{
+  "aliceDeviceIdHex": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "bobDeviceIdHex": "a0b1c2d3e4f50112233445566778899a",
+  "alicePublicKeyHex": "04b5a104b6caadfa15a6fb9eb3939237284d404e9d9486b706411457a16f12e84a18bbebd97e525867075442bd530ea4d29ee7ad873a82a62e804be3c08e34c9d6",
+  "bobPublicKeyHex": "04d2c678c73504952fcbc5907fe45baec2f77eb491c8514492b7b41f62eb05bf9288af2c87ca4f3fc574d3482e99912b8c3e666337cd057887b2db45efcc2f88c8",
+  "initiatorDeviceIdHex": "a0b1c2d3e4f50112233445566778899a",
+  "responderDeviceIdHex": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "initiatorHelloNonceHex": "b0b1b2b3b4b5b6b7",
+  "responderHelloNonceHex": "a0a1a2a3a4a5a6a7",
+  "transcriptPrefixHex": "416972436861742d76312d736166657479",
+  "expectedCode": "873447",
+  "secondPair": {
+    "initiatorHelloNonceHex": "0000000000000001",
+    "responderHelloNonceHex": "0000000000000002",
+    "expectedCode": "757883"
+  }
+}
