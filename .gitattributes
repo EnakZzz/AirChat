@@ -1,0 +1,20 @@
+# Normalise line endings so the Kotlin, Swift and JSON sources stay byte-identical across
+# Windows and macOS checkouts.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.jar binary
+*.zip binary
+*.pbxproj binary
+
+# Generated / vendored
+android/gradle/wrapper/gradle-wrapper.jar binary

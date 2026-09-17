@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AirChat</string>
+
+    <string name="tab_nearby">附近</string>
+    <string name="tab_channel">公共频道</string>
+    <string name="tab_direct">私聊</string>
+    <string name="tab_settings">设置</string>
+
+    <string name="service_channel_name">附近连接</string>
+    <string name="service_channel_description">保持与附近设备的蓝牙连接</string>
+
+    <string name="permission_title">需要蓝牙权限</string>
+    <string name="permission_body">AirChat 需要「附近的设备」权限才能发现并连接附近的人。我们只扫描 AirChat 自己的服务，不会用于定位。</string>
+    <string name="permission_action">授予权限</string>
+    <string name="bluetooth_off_title">蓝牙未开启</string>
+    <string name="bluetooth_off_body">AirChat 完全依赖蓝牙点对点通信，没有服务器中转。请打开蓝牙后继续。</string>
+    <string name="bluetooth_off_action">打开蓝牙</string>
+
+    <string name="nearing_full">附近人数已满（上限 8 人）</string>
+    <string name="status_scanning">正在寻找附近的人…</string>
+    <string name="status_stopped">已停止</string>
+
+    <string name="link_ready">已连接</string>
+    <string name="link_handshaking">握手中…</string>
+    <string name="link_verified">已核对</string>
+    <string name="link_unverified">未核对</string>
+    <string name="link_rejected">已拒绝</string>
+
+    <string name="channel_hint">消息会发给附近所有已连接的设备，不加密。</string>
+    <string name="direct_empty">还没有私聊。先到「附近」连接一个人。</string>
+    <string name="channel_empty">附近还没有人说话。</string>
+
+    <string name="message_hint">说点什么…</string>
+    <string name="send">发送</string>
+
+    <string name="safety_title">核对安全码</string>
+    <string name="safety_body">请与对方当面比对这 6 位数字。一致才代表没有中间人。</string>
+    <string name="safety_match">一致，信任对方</string>
+    <string name="safety_mismatch">不一致，拒绝</string>
+
+    <string name="settings_nickname">昵称</string>
+    <string name="settings_device_id">设备 ID</string>
+    <string name="settings_retention">公共频道保留 500 条 / 7 天；私聊永久保留。</string>
+    <string name="settings_ios_note">iOS 限制：进入后台后系统不再广播服务 UUID，因此锁屏时无法被其他设备发现，但仍能接收已建立连接的消息。</string>
+    <string name="settings_logs">诊断日志</string>
+</resources>

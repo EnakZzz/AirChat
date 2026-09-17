@@ -1,0 +1,259 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "9e2a26518f5e2124c745c4cf85563187",
+    "entities": [
+      {
+        "tableName": "identity",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `device_id` BLOB NOT NULL, `private_key` BLOB NOT NULL, `public_key` BLOB NOT NULL, `nickname` TEXT NOT NULL, `created_ms` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "device_id",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "privateKey",
+            "columnName": "private_key",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "publicKey",
+            "columnName": "public_key",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nickname",
+            "columnName": "nickname",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdMs",
+            "columnName": "created_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "peers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`device_id` BLOB NOT NULL, `nickname` TEXT NOT NULL, `public_key` BLOB NOT NULL, `trust_state` INTEGER NOT NULL, `last_seen_ms` INTEGER NOT NULL, `created_ms` INTEGER NOT NULL, PRIMARY KEY(`device_id`))",
+        "fields": [
+          {
+            "fieldPath": "deviceId",
+            "columnName": "device_id",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nickname",
+            "columnName": "nickname",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "publicKey",
+            "columnName": "public_key",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trustState",
+            "columnName": "trust_state",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeenMs",
+            "columnName": "last_seen_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdMs",
+            "columnName": "created_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "device_id"
+          ]
+        }
+      },
+      {
+        "tableName": "messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`msg_id` BLOB NOT NULL, `conversation_id` TEXT NOT NULL, `kind` INTEGER NOT NULL, `direction` INTEGER NOT NULL, `sender_id` BLOB NOT NULL, `recipient_id` BLOB, `text` TEXT NOT NULL, `timestamp_ms` INTEGER NOT NULL, `received_ms` INTEGER NOT NULL, `status` INTEGER NOT NULL, PRIMARY KEY(`msg_id`))",
+        "fields": [
+          {
+            "fieldPath": "msgId",
+            "columnName": "msg_id",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversation_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "direction",
+            "columnName": "direction",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "senderId",
+            "columnName": "sender_id",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recipientId",
+            "columnName": "recipient_id",
+            "affinity": "BLOB"
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestampMs",
+            "columnName": "timestamp_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receivedMs",
+            "columnName": "received_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "msg_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_messages_conversation_id_received_ms",
+            "unique": false,
+            "columnNames": [
+              "conversation_id",
+              "received_ms"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_messages_conversation_id_received_ms` ON `${TABLE_NAME}` (`conversation_id`, `received_ms`)"
+          },
+          {
+            "name": "index_messages_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_messages_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_messages_kind_received_ms",
+            "unique": false,
+            "columnNames": [
+              "kind",
+              "received_ms"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_messages_kind_received_ms` ON `${TABLE_NAME}` (`kind`, `received_ms`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`peer_device_id` BLOB NOT NULL, `session_key` BLOB NOT NULL, `peer_public_key` BLOB NOT NULL, `verified` INTEGER NOT NULL, `created_ms` INTEGER NOT NULL, `last_used_ms` INTEGER NOT NULL, PRIMARY KEY(`peer_device_id`))",
+        "fields": [
+          {
+            "fieldPath": "peerDeviceId",
+            "columnName": "peer_device_id",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionKey",
+            "columnName": "session_key",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peerPublicKey",
+            "columnName": "peer_public_key",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "verified",
+            "columnName": "verified",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdMs",
+            "columnName": "created_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUsedMs",
+            "columnName": "last_used_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "peer_device_id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9e2a26518f5e2124c745c4cf85563187')"
+    ]
+  }
+}

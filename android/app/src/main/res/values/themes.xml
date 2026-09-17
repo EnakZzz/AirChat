@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Compose draws the whole UI, so the platform theme only has to provide a day/night aware,
+      action-bar-less window. Android has no Theme.DeviceDefault.DayNight.NoActionBar, hence the
+      explicit windowActionBar/windowNoTitle overrides.
+
+      Edge-to-edge is enabled in MainActivity via enableEdgeToEdge(); the window background is
+      the platform default so dark mode does not flash a light window before Compose draws.
+    -->
+    <style name="Theme.AirChat" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">?android:attr/colorBackground</item>
+    </style>
+</resources>
