@@ -1,31 +1,42 @@
 # --- repository-wide ---
 .tmp/
 *.log
+.DS_Store
+
+# --- build outputs, wherever they appear ---
+# Covers android/*/build/, ios/build/ (the path ios/README.md's recipe uses) and any nested
+# Gradle, Xcode or SwiftPM output. A bare pattern without a leading slash matches at every level.
+build/
+.build/
+out/
+DerivedData/
+.swiftpm/
+xcuserdata/
 
 # --- Android / Gradle ---
 android/local.properties
 android/.gradle/
-android/build/
-android/*/build/
 android/.kotlin/
-android/**.apk
-android/**.aab
+.kotlin/
 android/captures/
 .idea/
 *.iml
-.kotlin/
+*.hprof
 
 # --- iOS / Xcode ---
+# The .xcodeproj is generated from project.yml by XcodeGen and must never be committed.
 ios/*.xcodeproj/
 ios/*.xcworkspace/
-ios/.build/
-ios/**/.build/
-ios/DerivedData/
-ios/**/xcuserdata/
-ios/**/*.xcuserstate
 *.ipa
 *.dSYM.zip
-.DS_Store
+
+# --- packaging / signing (never commit these) ---
+*.apk
+*.aab
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
 
 # --- tooling ---
 __pycache__/

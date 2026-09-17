@@ -33,6 +33,9 @@ Usage
     python3 tools/cross_device_test.py --android-apk ../android/app/build/outputs/apk/debug/app-debug.apk
     python3 tools/cross_device_test.py --ios-udid <IOS_DEVICE_UDID>
 
+The device identifiers are discovered automatically, so neither a UDID nor a serial number has to
+be written down anywhere - which also keeps them out of the repository.
+
 Exit codes: 0 = pass, 1 = assertion failed, 2 = environment problem (device/tool missing).
 """
 
