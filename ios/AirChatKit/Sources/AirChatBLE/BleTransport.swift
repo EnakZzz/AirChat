@@ -45,8 +45,6 @@ public final class BleTransport: NSObject, Transport {
     private var running = false
     private var scanning = false
     private var advertising = false
-    /// True when the platform rejected the presence block and we fell back to UUID-only adverts.
-    private var presenceUnavailable = false
 
     private var links: [String: BleLink] = [:]
     /// Live links keyed by role-scoped peer handle, so delegate callbacks can find them.
@@ -139,10 +137,12 @@ public final class BleTransport: NSObject, Transport {
         queue.sync {
             advertisedProtocolVersion = protocolVersion
             advertisedCapabilities = capabilities
-            if advertising {
-                stopAdvertising()
-                startAdvertising()
-            }
+            // The values are recorded for diagnostics only: iOS cannot advertise them (see
+            // startAdvertising), so nothing needs re-advertising when they change.
+            logger.log(
+                "BleTransport",
+                "presence updated (protocol v\(protocolVersion), caps \(capabilities)); iOS advertises the service UUID only"
+            )
         }
     }
 
@@ -178,20 +178,23 @@ public final class BleTransport: NSObject, Transport {
         return service
     }
 
+    /// Advertises the AirChat service UUID and nothing else.
+    ///
+    /// iOS cannot carry the presence block: a `CBAdvertisementDataServiceDataKey` dictionary is
+    /// keyed by `CBUUID`, and CoreBluetooth aborts while encoding it for the Bluetooth daemon.
+    /// Measured on iOS 27 with a symbolicated crash report:
+    ///
+    ///   CBXpcCreateXPCDictionaryWithNSDictionary -> -[CBUUID UTF8String]
+    ///   -> NSInvalidArgumentException: unrecognized selector sent to instance
+    ///   <- -[CBPeripheralManager startAdvertising:] <- BleTransport.startAdvertising()
+    ///
+    /// So the ticket/version hint is Android-only. That is acceptable because the block is
+    /// non-authoritative by design (`docs/protocol.md` section 4): a peer advertising without it
+    /// falls back to the SCAN_RETRY_AFTER_MS rule, and a redundant connection is resolved by the
+    /// post-handshake link dedupe in section 5.4.
     private func startAdvertising() {
         guard running, let peripheralManager, peripheralManager.state == .poweredOn else { return }
-
-        var data: [String: Any] = [CBAdvertisementDataServiceUUIDsKey: [BleUuids.service]]
-        if !presenceUnavailable {
-            data[CBAdvertisementDataServiceDataKey] = [
-                BleUuids.presence: BleUuids.encodePresence(
-                    protocolVersion: advertisedProtocolVersion,
-                    capabilities: advertisedCapabilities,
-                    ticket: ticket
-                ),
-            ]
-        }
-        peripheralManager.startAdvertising(data)
+        peripheralManager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [BleUuids.service]])
     }
 
     private func stopAdvertising() {
@@ -203,18 +206,10 @@ public final class BleTransport: NSObject, Transport {
         advertising = false
     }
 
-    /// Presence block never reaches a meaningful size limit under normal conditions, but the
-    /// platform can still reject it; falling back to the bare service UUID keeps discovery
-    /// working because the peer then connects on the retry path.
     private func handleAdvertisingFailure(_ error: Error) {
         advertising = false
-        guard !presenceUnavailable else {
-            emit(.status(.bluetoothUnavailable, "蓝牙广播失败：\(error.localizedDescription)"))
-            return
-        }
-        logger.log("BleTransport", "advertising with presence block failed (\(error)); retrying without it")
-        presenceUnavailable = true
-        startAdvertising()
+        logger.log("BleTransport", "advertising failed: \(error)")
+        emit(.status(.bluetoothUnavailable, "蓝牙广播失败：\(error.localizedDescription)"))
     }
 
     // -------------------------------------------------------------- scanning

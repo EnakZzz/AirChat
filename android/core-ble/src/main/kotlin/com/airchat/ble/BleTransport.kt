@@ -330,12 +330,19 @@ class BleTransport(
         val device = result.device ?: return
         val address = device.address ?: return
         val presence = BleUuids.decodePresence(result.scanRecord?.getServiceData(BleUuids.PRESENCE))
-            ?: return
+
+        // The presence block is an optional, non-authoritative hint (docs/protocol.md section 4):
+        // iOS cannot advertise one at all, so a peer without it must still be considered rather
+        // than ignored. Derive a pseudo-ticket from the peer address; it only has to be stable
+        // within one encounter. A wrong guess costs at most one redundant connection, because the
+        // SCAN_RETRY_AFTER_MS rule guarantees someone eventually connects and the post-handshake
+        // dedupe (section 5.4) drops the extra link.
+        val peerTicket = presence?.ticket ?: (address.hashCode() and 0xFFFF)
 
         val now = SystemClock.elapsedRealtime()
         val entry = seen[address]
         if (entry == null) {
-            seen[address] = SeenPeer(presence.ticket, now, now, result.rssi)
+            seen[address] = SeenPeer(peerTicket, now, now, result.rssi)
         } else {
             entry.lastSeenMs = now
             entry.rssi = result.rssi
@@ -344,14 +351,14 @@ class BleTransport(
         emit(
             TransportEvent.PeerSeen(
                 peerLabel = address,
-                protocolVersion = presence.protocolVersion,
-                capabilities = presence.capabilities,
-                ticket = presence.ticket,
+                protocolVersion = presence?.protocolVersion ?: 0,
+                capabilities = presence?.capabilities ?: 0,
+                ticket = peerTicket,
                 rssi = result.rssi,
             ),
         )
 
-        considerConnecting(device, address, presence, now)
+        considerConnecting(device, address, peerTicket, now)
     }
 
     /**
@@ -362,7 +369,7 @@ class BleTransport(
     private fun considerConnecting(
         device: BluetoothDevice,
         address: String,
-        presence: BleUuids.Presence,
+        peerTicket: Int,
         now: Long,
     ) {
         if (linksByAddress.containsKey(address) || connecting.contains(address)) return
@@ -370,7 +377,7 @@ class BleTransport(
         if (now < (backoffUntil[address] ?: 0L)) return
 
         val firstSeen = seen[address]?.firstSeenMs ?: now
-        val weAreSmaller = ticket < presence.ticket
+        val weAreSmaller = ticket < peerTicket
         val peerNeverCame = now - firstSeen >= AirChatProtocol.SCAN_RETRY_AFTER_MS
         if (!weAreSmaller && !peerNeverCame) return
 
@@ -387,7 +394,7 @@ class BleTransport(
             return
         }
         pendingGatt[address] = gatt
-        logger.log(TAG, "connecting to $address (our ticket=$ticket, theirs=${presence.ticket})")
+        logger.log(TAG, "connecting to $address (our ticket=$ticket, theirs=$peerTicket)")
     }
 
     // ------------------------------------------------------- GATT server side

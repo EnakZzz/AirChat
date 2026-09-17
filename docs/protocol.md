@@ -98,7 +98,7 @@ AD 结构拼接顺序：
 2. Complete 128-bit Service UUID List（AD type `0x07`）：Service UUID
 3. Service Data - 16-bit UUID（AD type `0x16`）：UUID16 = `0xA1C0`，数据为 4 字节存在性块
 
-存在性块（4 字节）：
+存在性块（4 字节，**可选**）：
 
 | 偏移 | 类型 | 字段 |
 | --- | --- | --- |
@@ -109,6 +109,29 @@ AD 结构拼接顺序：
 总长度：`4 + 18 + 8 = 30` 字节 ≤ 31，可在 legacy 包内完整携带。
 
 **不广播昵称**：昵称通过 HELLO 交换。原因见 §11.3（iOS 后台广播限制）。
+
+### 4.1 存在性块是可选的非权威提示（重要）
+
+接收方**必须**容忍它不存在，并据此生成一个替代 ticket；**不得**因缺失而忽略该对端。
+
+原因：**iOS 无法发送 Service Data**。给
+`CBAdvertisementDataServiceDataKey` 传以 `CBUUID` 为 key 的字典时，CoreBluetooth 在把参数
+编码成 XPC 消息时会 abort。iOS 27 上的带符号崩溃报告：
+
+```
+CBXpcCreateXPCDictionaryWithNSDictionary
+  -> -[CBUUID UTF8String]  -> NSInvalidArgumentException（unrecognized selector）
+  <- -[CBPeripheralManager startAdvertising:]  <- BleTransport.startAdvertising()
+```
+
+后果与代价（已接受）：
+
+- Android 仍然发送存在性块，因此 **Android ↔ Android** 仍能使用 §5.3 的 ticket 优化；
+- **Android ↔ iOS / iOS ↔ iOS** 退化为：没读到存在性块的一方按对端地址派生一个伪 ticket，
+  仅用于在本次相遇内保持决策稳定；
+- 伪 ticket 两侧可能"都不发起"，所以 §5.3 的回退规则（`SCAN_RETRY_AFTER_MS`）是**必须**的，
+  它保证最终一定有人发起连接；由此产生的重复链路由 §5.4 去重。
+- 净代价：最坏情况下多建立一条冗余连接、连接建立延迟一个 `SCAN_RETRY_AFTER_MS`。
 
 ---
 
