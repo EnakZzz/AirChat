@@ -131,6 +131,7 @@ internal class BleLink(
     fun onGattConnected(connectedGatt: BluetoothGatt) {
         if (closed) return
         gatt = connectedGatt
+        logger.log(TAG, "central setup: requesting service discovery on $linkId")
         setupOps.addLast { link ->
             link.gatt?.discoverServices() ?: false
         }
@@ -160,6 +161,11 @@ internal class BleLink(
             return
         }
 
+        logger.log(
+            TAG,
+            "central setup: discovery ok on $linkId (status=$status, characteristics=" +
+                "${service.characteristics?.size ?: 0})",
+        )
         // Enqueue the remaining steps before releasing the discovery step.
         setupOps.addLast { link -> link.subscribe(link.ctrlChar) }
         setupOps.addLast { link -> link.subscribe(link.txChar) }
@@ -170,8 +176,15 @@ internal class BleLink(
     private fun subscribe(characteristic: BluetoothGattCharacteristic?): Boolean {
         val gatt = gatt ?: return false
         val char = characteristic ?: return false
-        if (!gatt.setCharacteristicNotification(char, true)) return false
-        val cccd = char.getDescriptor(BleUuids.CCCD) ?: return false
+        logger.log(TAG, "central setup: subscribing ${char.uuid} on $linkId")
+        if (!gatt.setCharacteristicNotification(char, true)) {
+            logger.log(TAG, "central setup: setCharacteristicNotification failed for ${char.uuid}")
+            return false
+        }
+        val cccd = char.getDescriptor(BleUuids.CCCD) ?: run {
+            logger.log(TAG, "central setup: no CCCD on ${char.uuid}")
+            return false
+        }
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
                 BluetoothStatusCodes.SUCCESS
@@ -309,6 +322,7 @@ internal class BleLink(
     }
 
     private fun markCentralReady() {
+        logger.log(TAG, "central setup: all steps done on $linkId (mtu=$mtu)")
         if (isCentral && !readyForTraffic && !closed) {
             readyForTraffic = true
             logger.log(TAG, "central $linkId ready (mtu=$mtu)")
