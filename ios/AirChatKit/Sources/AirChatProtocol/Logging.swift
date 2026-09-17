@@ -22,6 +22,20 @@ public final class OsLogger: AirChatLogger {
     }
 }
 
+/// Writes protocol logs to stderr, which is what `xcrun devicectl device process launch
+/// --console` captures.
+///
+/// This is the only way to read a real iPhone's protocol logs from the host: the unified log is
+/// not reachable over `devicectl`, and the in-app buffer requires tapping through the UI. Wired in
+/// for debug builds only (see `AppContainer`).
+public final class ConsoleLogger: AirChatLogger {
+    public init() {}
+
+    public func log(_ tag: String, _ message: String) {
+        FileHandle.standardError.write(Data("AIRCHAT_LOG [\(tag)] \(message)\n".utf8))
+    }
+}
+
 /// Bounded in-memory log tail, surfaced by the settings screen for on-device debugging.
 public final class BufferLogger: AirChatLogger {
     private let capacity: Int

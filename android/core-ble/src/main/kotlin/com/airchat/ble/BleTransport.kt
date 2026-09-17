@@ -518,7 +518,12 @@ class BleTransport(
             value: ByteArray?,
         ) {
             onHandler {
-                if (!preparedWrite && offset == 0) {
+                // Inbound frames arrive on CH_RX (data) and CH_CTRL (signalling): docs/protocol.md
+                // section 5.1 declares CH_CTRL bidirectional. iOS had the mirror-image bug of
+                // accepting only CH_RX, which made handshakes impossible; keep both ends explicit.
+                val isInboundCharacteristic = characteristic.uuid == BleUuids.rxUuid() ||
+                    characteristic.uuid == BleUuids.ctrlUuid()
+                if (!preparedWrite && offset == 0 && isInboundCharacteristic) {
                     linksByAddress[device.address]?.onInbound(value)
                 }
                 respondToRequest(device, requestId, responseNeeded, BluetoothGatt.GATT_SUCCESS)

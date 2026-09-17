@@ -547,7 +547,15 @@ extension BleTransport: CBPeripheralManagerDelegate {
             for request in requests {
                 let identifier = request.central.identifier.uuidString
                 self.ensurePeripheralLink(central: request.central)
-                if request.characteristic.uuid == BleUuids.rx {
+                // Inbound frames arrive on CH_RX (data) *and* CH_CTRL (signalling), because
+                // docs/protocol.md section 5.1 declares CH_CTRL bidirectional: the handshake and
+                // PING/PONG/KEY_VERIFY frames the peer sends travel on it.
+                //
+                // Accepting only CH_RX silently discarded every HELLO a peer wrote to CH_CTRL,
+                // which meant a link could never finish its handshake while this device was the
+                // peripheral. Verified by tools/cross_device_test.py.
+                let inboundCharacteristic = request.characteristic.uuid
+                if inboundCharacteristic == BleUuids.rx || inboundCharacteristic == BleUuids.ctrl {
                     self.linksByKey[self.peripheralKey(identifier)]?.onInbound(request.value)
                 }
                 // write-with-response requires an explicit reply; write-without-response must not

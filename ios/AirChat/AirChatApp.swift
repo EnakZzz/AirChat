@@ -17,7 +17,12 @@ final class AppContainer {
     private let reporter: DiagnosticStateReporter
 
     init() {
+        #if DEBUG
+        // Debug builds also stream protocol logs to stderr so `devicectl --console` can read them.
+        let logger = FanOutLogger(OsLogger(), ConsoleLogger(), diagnostics)
+        #else
         let logger = FanOutLogger(OsLogger(), diagnostics)
+        #endif
         let store: SqliteChatStore
         do {
             store = try SqliteChatStore(path: try SqliteChatStore.defaultPath())
