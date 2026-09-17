@@ -1,0 +1,63 @@
+# XcodeGen project definition.
+#
+# `.xcodeproj` is intentionally not committed: it is a generated artefact, and keeping only
+# `project.yml` means the project structure is reviewable in diffs and cannot drift.
+#
+#   brew install xcodegen
+#   cd ios && xcodegen generate && open AirChat.xcodeproj
+#
+# The protocol/BLE/persistence layers live in the local SwiftPM package `AirChatKit`, so they can
+# be built and tested without Xcode (see ios/README.md).
+name: AirChat
+
+options:
+  bundleIdPrefix: app.airchat
+  createIntermediateGroups: true
+  developmentLanguage: zh-Hans
+  deploymentTarget:
+    iOS: "26.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    ENABLE_USER_SCRIPT_SANDBOXING: "YES"
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  AirChatKit:
+    path: AirChatKit
+
+targets:
+  AirChat:
+    type: application
+    platform: iOS
+    sources:
+      - path: AirChat
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.airchat.ios
+        PRODUCT_NAME: AirChat
+        INFOPLIST_FILE: AirChat/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0.0"
+    dependencies:
+      - package: AirChatKit
+        product: AirChatProtocol
+      - package: AirChatKit
+        product: AirChatBLE
+      - package: AirChatKit
+        product: AirChatData
+
+schemes:
+  AirChat:
+    build:
+      targets:
+        AirChat: all
+    run:
+      config: Debug
+    archive:
+      config: Release
