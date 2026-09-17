@@ -98,12 +98,20 @@ class AirChatContainer(context: Context) {
                 if (separator <= 0) continue
                 val kind = part.substring(0, separator).trim()
                 val text = part.substring(separator + 1)
+                // The outcome is logged rather than ignored: a rejected send is otherwise completely
+                // invisible and looks identical to "the peer never received it".
                 when (kind) {
-                    "channel" -> node.postChannelMessage(text)
-                    "private" -> node.state.value.links
-                        .firstOrNull { it.ready && it.peerIdHex != null }
-                        ?.peerIdHex
-                        ?.let { node.sendPrivateMessage(it, text) }
+                    "channel" -> AndroidLogSink().log("SelfTest", "channel -> " + node.postChannelMessage(text))
+                    "private" -> {
+                        val peer = node.state.value.links
+                            .firstOrNull { it.ready && it.peerIdHex != null }
+                            ?.peerIdHex
+                        if (peer == null) {
+                            AndroidLogSink().log("SelfTest", "private skipped: no ready link")
+                        } else {
+                            AndroidLogSink().log("SelfTest", "private -> " + node.sendPrivateMessage(peer, text))
+                        }
+                    }
                 }
             }
         }

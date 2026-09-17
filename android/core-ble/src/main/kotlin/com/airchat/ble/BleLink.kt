@@ -261,7 +261,11 @@ internal class BleLink(
         // write-with-response gives ATT-level flow control; see docs/protocol.md section 6.3.
         char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         char.value = chunk.bytes
-        return gatt.writeCharacteristic(char)
+        val started = gatt.writeCharacteristic(char)
+        // Logged because a rejected write() is otherwise invisible: the frame stays queued and the
+        // peer simply never sees it, which looks identical to a peer-side drop.
+        logger.log(TAG, "central write " + chunk.bytes.size + " byte(s) control=" + chunk.control + " on " + linkId + " accepted=" + started)
+        return started
     }
 
     private fun notifyAsPeripheral(chunk: Chunk): Boolean {
@@ -283,9 +287,7 @@ internal class BleLink(
     /** Central role: our write completed (or failed). */
     fun onCharacteristicWritten(status: Int) {
         inFlight = false
-        if (status != BluetoothGatt.GATT_SUCCESS) {
-            logger.log(TAG, "write to $linkId failed (status=$status)")
-        }
+        logger.log(TAG, "write to $linkId completed (status=" + status + ", queued=" + outbound.size + ")")
         drainOutbound()
     }
 

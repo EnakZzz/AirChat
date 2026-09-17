@@ -116,6 +116,7 @@ public final class LinkSession {
     public func onBytes(_ bytes: Data) {
         guard !isTerminal else { return }
         lastInboundAtMs = clock()
+        logger.log("LinkSession", "inbound \(bytes.count) byte(s) on link \(link.linkId)")
 
         switch framer.push(bytes) {
         case .fatal(_, let message):
@@ -131,6 +132,9 @@ public final class LinkSession {
     }
 
     private func handle(_ frame: Frame) {
+        // One line per decoded frame: without it a received-but-rejected frame and a frame that
+        // never arrived produce the same silence on the peer.
+        logger.log("LinkSession", "frame \(FrameType.name(frame.type)) \(frame.payload.count) byte(s)")
         switch frame.type {
         case FrameType.hello, FrameType.helloAck:
             guard let hello = MessageCodec.decodeHello(frame.payload) else {
@@ -169,9 +173,18 @@ public final class LinkSession {
                 logger.log("LinkSession", "dropping PRIVATE_MSG addressed elsewhere")
                 return
             }
+            let plaintext = decrypt(message)
+            if plaintext == nil {
+                // Distinguishes "the frame never arrived" from "it arrived but authentication failed",
+                // which is otherwise completely silent: the peer is acknowledged either way.
+                logger.log(
+                    "LinkSession",
+                    "private message \(ByteOps.toHex(message.msgId)) failed to decrypt"
+                )
+            }
             listener?.onPrivateMessage(
                 session: self,
-                received: ReceivedPrivateMessage(message: message, plaintext: decrypt(message))
+                received: ReceivedPrivateMessage(message: message, plaintext: plaintext)
             )
 
         case FrameType.deliveryAck:

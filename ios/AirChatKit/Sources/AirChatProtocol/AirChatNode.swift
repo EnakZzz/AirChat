@@ -634,6 +634,7 @@ public final class AirChatNode: LinkSessionListener {
             ) else { continue }
             posts.append(post)
         }
+        logger.log("AirChatNode", "sync request answered with \(posts.count) post(s)")
         session.sendSyncResponse(posts: posts)
     }
 
@@ -655,6 +656,7 @@ public final class AirChatNode: LinkSessionListener {
             )
             if (try? store.insertMessage(record)) == true { added += 1 }
         }
+        logger.log("AirChatNode", "sync response carried \(response.posts.count) post(s), stored \(added)")
         if added > 0 { emitEvent(.notice("已同步 \(added) 条历史消息")) }
         publishState()
     }

@@ -16,6 +16,8 @@ final class AppContainer {
     /// Machine-readable heartbeat consumed by tools/cross_device_test.py.
     private let reporter: DiagnosticStateReporter
 
+    private let logger: AirChatLogger
+
     init() {
         #if DEBUG
         // Debug builds also stream protocol logs to stderr so `devicectl --console` can read them.
@@ -23,6 +25,7 @@ final class AppContainer {
         #else
         let logger = FanOutLogger(OsLogger(), diagnostics)
         #endif
+        self.logger = logger
         let store: SqliteChatStore
         do {
             store = try SqliteChatStore(path: try SqliteChatStore.defaultPath())
@@ -67,10 +70,19 @@ final class AppContainer {
                 let kind = pieces[0].trimmingCharacters(in: .whitespaces)
                 let text = String(pieces[1])
                 if kind == "channel" {
-                    node.postChannelMessage(text)
-                } else if kind == "private",
-                          let peer = node.state.links.first(where: { $0.ready })?.peerIdHex {
-                    node.sendPrivateMessage(peerIdHex: peer, text: text)
+                    switch node.postChannelMessage(text) {
+                    case .sent: logger.log("SelfTest", "channel send accepted")
+                    case .rejected(let reason): logger.log("SelfTest", "channel send rejected: \(reason)")
+                    }
+                } else if kind == "private" {
+                    guard let peer = node.state.links.first(where: { $0.ready })?.peerIdHex else {
+                        logger.log("SelfTest", "private send skipped: no ready link")
+                        continue
+                    }
+                    switch node.sendPrivateMessage(peerIdHex: peer, text: text) {
+                    case .sent: logger.log("SelfTest", "private send accepted to \(peer)")
+                    case .rejected(let reason): logger.log("SelfTest", "private send rejected: \(reason)")
+                    }
                 }
             }
         }

@@ -540,7 +540,7 @@ extension BleTransport: CBPeripheralManagerDelegate {
     ) {
         queue.async { [weak self] in
             guard let self else { return }
-            var needsResponse = false
+            var pendingResponses: [CBATTRequest] = []
             for request in requests {
                 let identifier = request.central.identifier.uuidString
                 self.ensurePeripheralLink(central: request.central)
@@ -552,17 +552,27 @@ extension BleTransport: CBPeripheralManagerDelegate {
                 // which meant a link could never finish its handshake while this device was the
                 // peripheral. Verified by tools/cross_device_test.py.
                 let inboundCharacteristic = request.characteristic.uuid
+                // Logged here rather than only in LinkSession: a write that never reaches the link
+                // (because the characteristic is not one we accept) is otherwise indistinguishable
+                // from a frame the session parsed and rejected.
+                self.logger.log(
+                    "BleTransport",
+                    "peripheral write \(request.value?.count ?? 0) byte(s) on "
+                        + "\(inboundCharacteristic.uuidString) from \(identifier)"
+                )
                 if inboundCharacteristic == BleUuids.rx || inboundCharacteristic == BleUuids.ctrl {
                     self.linksByKey[self.peripheralKey(identifier)]?.onInbound(request.value)
                 }
                 // write-with-response requires an explicit reply; write-without-response must not
                 // be answered (protocol section 6.3).
                 if request.characteristic.properties.contains(.write) {
-                    needsResponse = true
+                    // Only the request that actually asked for a reply may be answered, so remember
+                    // it instead of assuming it is the first one in the batch.
+                    pendingResponses.append(request)
                 }
             }
-            if needsResponse, let first = requests.first {
-                peripheral.respond(to: first, withResult: .success)
+            for request in pendingResponses {
+                peripheral.respond(to: request, withResult: .success)
             }
         }
     }
