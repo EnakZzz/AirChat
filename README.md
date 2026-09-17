@@ -92,15 +92,21 @@ cd ios/AirChatKit && swift test
 | Android 真机安装与运行 | ✅ 安装并运行，广播+扫描正常，身份已持久化 |
 | Android ↔ iOS 相互发现 | ✅ 双向发现（Android 能读到 iOS 的广播，iOS 能读到 Android 的 presence 块） |
 | Android ↔ iOS 链路建立 + 握手 | ✅ **`tools/cross_device_test.py` 判定 PASS**：链路就绪、双方 identity 互指、角色镜像 |
-| **Android ↔ iOS 端到端加密一致性** | ✅ 两端独立算出**相同**的 6 位安全码（实测 `242239`），证明 Kotlin/JCA 与 Swift/CryptoKit 字节级一致 |
-| 消息收发（公共频道 / 1:1） | ⏳ 下一步：连接已通，尚未验证消息与 ACK 往返 |
+| **Android ↔ iOS 端到端加密一致性** | ✅ 两端独立算出**相同**的 6 位安全码（实测 `476390`），证明 Kotlin/JCA 与 Swift/CryptoKit 字节级一致 |
+| 消息收发（公共频道 / 1:1） | ✅ **双向均通**：公频文本互达；1:1 密文双向解密成功（`secret-from-android` / `secret-from-ios`），且双向都收到 `DELIVERY_ACK` |
 | 锁屏后台收消息 | ⏳ 未验证 |
 
 跨机自动化测试：`python3 tools/cross_device_test.py`（在接了两台手机的 Mac 上运行）。它会拉起两端、
-解析二者的状态心跳、断言"双向发现 / 链路就绪 / 身份互指 / 角色镜像 / **两端安全码一致**"，并在失败时
-直接给出卡在哪一步以及下一步该查什么。上述结论全部由该脚本与设备侧日志得出，不是目测。
+解析二者的状态心跳、断言九项——双向发现 / 链路就绪 / 身份互指 / 角色镜像 / **两端安全码一致** /
+双向公频文本 / **双向 1:1 密文解密文本** / 双向 `DELIVERY_ACK`，并在失败时直接给出卡在哪一步以及
+下一步该查什么。上述结论全部由该脚本与设备侧日志得出，不是目测。
 
-真机首跑发现并修复的两个平台级问题（不是猜测，都有设备侧证据）：
+用例注入的副本（`AIRCHAT_SELFTEST` / `airchat_selftest`）使用 `,` 分隔并不能改成 `|`：
+`adb shell` 会把这个值交给设备自己的 shell，未加引号的 `|` 会被当成管道，intent extra 会在管道处被截断。
+两端会把收到的脚本原文写入日志，脚本也对这行日志做断言，因此参数被截断会直接报成
+"脚本没传全"，而不是变成一个「神秘没收到的消息」。
+
+真机调试中发现并修复的问题（不是猜测，都有设备侧证据）：
 
 1. **iOS 启动即闪退**：给 `CBAdvertisementDataServiceDataKey` 传以 `CBUUID` 为 key 的字典会让
    CoreBluetooth 在编码 XPC 时对 key 调 `UTF8String` 而 abort（带符号崩溃报告已确认）。
@@ -108,6 +114,19 @@ cd ios/AirChatKit && swift test
    `docs/protocol.md` §4.1。
 2. **SSH 下真机签名失败**（`errSecInternalComponent`）：登录钥匙串必须解锁，否则 codesign
    无法取用私钥，即使 `security show-keychain-info` 之外的构建步骤都正常。
+3. **HELLO 只能走单向**：CH_CTRL 在协议里是双向的，但 iOS 侧只接收写到 CH_RX 的数据，
+   因此当 iOS 是外设时对端的 HELLO 被静默丢弃、握手永远完成不了。
+4. **外设发送队列只发首片**：等待一个 CoreBluetooth 根本不会给的
+   “通知已送达”回调，导致 97 字节的 HELLO_ACK 只出去了前 20 字节。
+   现在以 `updateValue` 的返回值作为唯一背压信号，并由 `peripheralManagerIsReady` 恢复。
+5. **重连后对着陈旧的 `CBCentral` 发通知**：重连会产生一个 identifier 相同但对象不同的
+   `CBCentral`，对着旧对象发通知既不报错也不会被缓存，通知就这么消失了。
+6. **Android 埋点加在了 API 31 不走的重载上**：`requestMtu` / CCCD / `writeCharacteristic` 都有新旧
+   两套重载，日志写在没被调用的那一个上，于是「日志里什么都没有」被误判成「什么都没发生」。
+7. **自动化用例的副本被 `adb shell` 截断**：`--es airchat_selftest a|b` 中的 `|` 被设备 shell
+   当成管道，App 只收到 `a`，于是「只有 Android→iOS 私聊不通」这个假象被误读了两轮。
+   它不是应用缺陷，但得出结论的方式与上面同样重要：两端现在都会把收到的脚本
+   原文写进日志，脚本也会断言这一行。
 
 另有一处非缺陷但会误导排查的现象：`devicectl --console` 报
 `Mercury error 1001 / connection was invalidated` 是**工具与设备的 XPC 通道断开**（设备锁屏或
