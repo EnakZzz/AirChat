@@ -30,6 +30,9 @@ open AirChat.xcodeproj
 ### 命令行真机构建（无需打开 Xcode）
 
 ```bash
+# 无 GUI 会话（SSH）下必须先解锁登录钥匙串，否则 codesign 报 errSecInternalComponent
+security unlock-keychain -p "<login password>" ~/Library/Keychains/login.keychain-db
+
 cd ios
 xcodegen generate
 xcodebuild -project AirChat.xcodeproj -scheme AirChat \
@@ -116,6 +119,8 @@ ios/
 | `error: Device "…" isn't registered in your developer account` | 加 `-allowProvisioningDeviceRegistration` 让 xcodebuild 注册设备，或在 Xcode 里第一次 Run 时让它自动注册。命令行构建示例见下方。 |
 | `error: No Account for Team "X"` | 钥匙串里的 Apple Development 证书属于团队 X，但 Xcode 登录的账号不是 X。用拥有该证书的 Apple ID 登录 Xcode，或改为让 Xcode 为它认识的那个团队签发一张新证书。 |
 | `Command CodeSign failed`，且日志里 profile 的 team 与 `Signing Identity` 的团队不一致 | 同一个根因：证书与描述文件必须属于同一团队。Xcode 的自动签名会按证书名挑选，同名不同团队时会挑错。 |
+| `Command CodeSign failed` + `errSecInternalComponent` | **SSH / 无 GUI 会话下最常见的原因**：登录钥匙串是锁定的，codesign 取不到私钥。先 `security unlock-keychain -p <登录密码> ~/Library/Keychains/login.keychain-db` 再构建。若仍失败，才考虑 `security set-key-partition-list`。 |
+| `devicectl --console` 报 `Mercury error 1001 / connection was invalidated` | 这是**工具与设备之间的 XPC 通道断开**（设备锁屏、Wi-Fi 配对不稳定），不是应用崩溃。判断是否真的崩溃，要看 `devicectl device copy from --domain-type systemCrashLogs` 取回的 `AirChat-*.ips`。 |
 | `swift test` 报找不到 testdata | 设置 `AIRCHAT_TESTDATA_DIR=/path/to/repo/testdata` |
 | Xcode 报签名错误 | 在 Signing & Capabilities 里选你自己的 Team |
 | 真机看不到对端 | 确认两台都授予了蓝牙权限、蓝牙已开、距离 10–50 米；打开设置页看诊断日志 |

@@ -86,9 +86,24 @@ cd ios/AirChatKit && swift test
 | 协议层 Swift（macOS 27 + Xcode 27 / Swift 6.4） | ✅ 50 个测试通过，读取同一批 `testdata/` 向量 |
 | Android 编译 + lint + debug/release APK | ✅ 实测通过 |
 | iOS 编译（iOS SDK 27.0，模拟器 SDK） | ✅ `xcodebuild` BUILD SUCCEEDED |
-| iOS 编译（真机 arm64） | ⚠️ 代码编译通过；卡在开发者账号签名（见 `ios/README.md` 排障） |
-| Android 真机安装与运行 | ⏳ 设备侧 `adb shell` 无响应，需先在手机上确认调试授权 |
-| Android ↔ iOS 实际互通 | ⏳ 取决于上两项 |
+| iOS 真机编译 + 安装（iPhone 12 / iOS 27） | ✅ `BUILD SUCCEEDED` + `devicectl` 安装成功 |
+| iOS 真机运行 | ✅ 启动、广播+扫描已运行、身份已持久化（修复了一次启动闪退，见下） |
+| Android 编译 + APK 构建 | ✅ 实测通过（Windows） |
+| Android 真机安装与运行 | ⏳ Mac 的 USB 连接不稳定（adb 报 `no devices/emulators found`），待重插数据线 |
+| Android ↔ iOS 实际互通 | ⏳ 取决于上一项 |
+
+真机首跑发现并修复的两个平台级问题（不是猜测，都有设备侧证据）：
+
+1. **iOS 启动即闪退**：给 `CBAdvertisementDataServiceDataKey` 传以 `CBUUID` 为 key 的字典会让
+   CoreBluetooth 在编码 XPC 时对 key 调 `UTF8String` 而 abort（带符号崩溃报告已确认）。
+   修复：iOS 只广播 Service UUID；Android 不再忽略「没有 presence 块」的对端。详见
+   `docs/protocol.md` §4.1。
+2. **SSH 下真机签名失败**（`errSecInternalComponent`）：登录钥匙串必须解锁，否则 codesign
+   无法取用私钥，即使 `security show-keychain-info` 之外的构建步骤都正常。
+
+另有一处非缺陷但会误导排查的现象：`devicectl --console` 报
+`Mercury error 1001 / connection was invalidated` 是**工具与设备的 XPC 通道断开**（设备锁屏或
+网络配对不稳定），与应用崩溃无关；应用崩溃应看 `AirChat-*.ips`。
 
 ## 安全模型
 
