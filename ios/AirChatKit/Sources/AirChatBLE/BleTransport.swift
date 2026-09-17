@@ -720,7 +720,7 @@ public final class BleTransport: Transport {
 
     public let ticket: Int = AirChatCrypto.randomTicket()
 
-    public init(logger: AirChatLogger = NoopLogger(), clock: @escaping () -> Int64 = { _ in 0 }) {}
+    public init(logger: AirChatLogger = NoopLogger(), clock: @escaping () -> Int64 = { 0 }) {}
 
     public func setEventHandler(_ handler: @escaping (TransportEvent) -> Void) {
         handler(.status(.bluetoothUnavailable, "此平台不支持蓝牙 LE（AirChat 仅支持 iOS 与 Android）"))
