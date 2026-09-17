@@ -53,7 +53,7 @@ pwsh -File android\build.ps1 clean build
 ```
 
 **为什么用 `build.ps1` 而不是直接 `gradlew`**：本机进程的 `TEMP` 被展开成 8.3 短名路径
-（`C:\Users\HAPPYE~1\...`），Windows 的 AF_UNIX `connect()` 对这种路径返回 `EINVAL`，
+（形如 `C:\Users\<Account>~1\...` 的 8.3 短名路径），Windows 的 AF_UNIX `connect()` 对这种路径返回 `EINVAL`，
 导致 JDK 的 `PipeImpl` / `SelectorProvider.openPipe()` 失败，所有 JVM 工具都会报
 `Unable to establish loopback connection`。`build.ps1` 只是把 `TEMP`/`TMP` 指向仓库内的
 `.tmp`（长路径）后调用 `gradlew`，不改变其它环境。

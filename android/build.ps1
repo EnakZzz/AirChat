@@ -4,8 +4,8 @@
 
   Why this wrapper exists
   -----------------------
-  This machine's process TEMP/TMP is expanded to an 8.3 short path
-  (C:\Users\HAPPYE~1\...). Windows AF_UNIX `connect()` rejects such a path with
+  Some Windows hosts expand the process TEMP/TMP to an 8.3 short path
+  (e.g. C:\Users\<Account>~1\...). Windows AF_UNIX `connect()` rejects such a path with
   EINVAL, which breaks the JDK's PipeImpl / SelectorProvider.openPipe() and makes
   every JVM-based tool die with "Unable to establish loopback connection".
 
