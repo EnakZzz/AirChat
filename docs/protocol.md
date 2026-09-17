@@ -177,6 +177,25 @@ Peripheral 暴露一个 Service 与三个 Characteristic：
    这保证对端因自身已满/异常而未能发起时仍能建链。
 4. 同一对端在短时间内（< 2000ms）重复发起连接失败时，退避 3000ms 再试，避免连接风暴。
 
+### 5.3.1 无 presence 块时的方向策略（重要）
+
+§5.3 的 ticket 比较**只有当双方都能广播 presence 块时才成立**。iOS 无法广播（见 §4.1），
+因此 Android 只能对着一个自行编造的伪 ticket 比较，而 iOS 对着真实 ticket 比较——两者永远
+不是同一个决策，可能出现"双方都发起"（连接抖动）甚至"双方都不发起"。
+
+实测后果（`tools/cross_device_test.py`）：链路在秒级反复建立又断开，`HELLO_ACK` 来不及在同一
+会话上往返，任何会话都无法进入 READY。
+
+因此规定：
+
+1. **对端没有 presence 块** → 本机**立即发起**连接，不做 ticket 比较（因为不存在共享决策）。
+   这条规则让 Android 在 Android↔iOS 组合中承担发起方。
+2. **本机无法广播 presence 块**（即 iOS）→ **不主动发起**，只在
+   `SCAN_RETRY_AFTER_MS` 回退窗口到期、对端仍未连过来时才发起。这覆盖"对端已达链路上限"
+   以及 iOS↔iOS（双方都回退，随后由 §5.4 收敛到一条链路）。
+3. 两端**都有** presence 块（Android↔Android）→ 仍然使用 §5.3 的原始 ticket 规则，
+   该规则在双方信息对称时是完全共享的决策。
+
 ### 5.4 重复 Link 去重
 
 握手交换真实 `deviceId` 后，若发现对同一 `deviceId` 已存在 Link，则按以下**确定性规则**保留一条：

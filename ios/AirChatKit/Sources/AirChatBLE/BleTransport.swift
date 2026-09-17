@@ -286,10 +286,20 @@ public final class BleTransport: NSObject, Transport {
         guard links.count + connecting.count < AirChatProtocol.maxLinks else { return }
         if let until = backoffUntil[identifier], now < until { return }
 
-        let firstSeen = seen[identifier]?.firstSeenMs ?? now
-        let weAreSmaller = ticket < peerTicket
-        let peerNeverCame = now - firstSeen >= AirChatProtocol.scanRetryAfterMs
-        guard weAreSmaller || peerNeverCame else { return }
+        // Connection-direction policy, see docs/protocol.md section 5.3.1.
+        //
+        // iOS cannot advertise a presence block (see startAdvertising), so a ticket comparison
+        // between iOS and Android can never be a decision both sides agree on: Android compares
+        // against a pseudo-ticket it invents, iOS compares against a real one. Racing on that
+        // produced a connect/disconnect storm - links died before HELLO_ACK could come back, so
+        // no session ever reached READY.
+        //
+        // So iOS simply never races: it waits out the fallback window and only initiates when the
+        // peer has not connected us, which covers "the peer is at its link cap" and iOS<->iOS (both
+        // wait, both fall back, and the post-handshake dedupe keeps one link).
+        let peerNeverCame = now - (seen[identifier]?.firstSeenMs ?? now) >= AirChatProtocol.scanRetryAfterMs
+        guard peerNeverCame else { return }
+        _ = peerTicket
 
         guard let centralManager, centralManager.state == .poweredOn else { return }
 

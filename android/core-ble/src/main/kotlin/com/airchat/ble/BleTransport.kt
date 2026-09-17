@@ -339,6 +339,7 @@ class BleTransport(
         // within one encounter. A wrong guess costs at most one redundant connection, because the
         // SCAN_RETRY_AFTER_MS rule guarantees someone eventually connects and the post-handshake
         // dedupe (section 5.4) drops the extra link.
+        val peerAdvertisesTicket = presence != null
         val peerTicket = presence?.ticket ?: (address.hashCode() and 0xFFFF)
 
         val now = SystemClock.elapsedRealtime()
@@ -360,7 +361,7 @@ class BleTransport(
             ),
         )
 
-        considerConnecting(device, address, peerTicket, now)
+        considerConnecting(device, address, peerTicket, peerAdvertisesTicket, now)
     }
 
     /**
@@ -372,6 +373,7 @@ class BleTransport(
         device: BluetoothDevice,
         address: String,
         peerTicket: Int,
+        peerAdvertisesTicket: Boolean,
         now: Long,
     ) {
         if (linksByAddress.containsKey(address) || connecting.contains(address)) return
@@ -379,9 +381,17 @@ class BleTransport(
         if (now < (backoffUntil[address] ?: 0L)) return
 
         val firstSeen = seen[address]?.firstSeenMs ?: now
-        val weAreSmaller = ticket < peerTicket
-        val peerNeverCame = now - firstSeen >= AirChatProtocol.SCAN_RETRY_AFTER_MS
-        if (!weAreSmaller && !peerNeverCame) return
+        // Direction policy, see docs/protocol.md section 5.3.1.
+        //
+        // A peer that advertises no presence block (currently only iOS can be in that state)
+        // cannot take part in a shared ticket comparison, so comparing against an invented
+        // pseudo-ticket would just be a coin flip that both sides can lose - producing the
+        // connect/disconnect storm that stopped handshakes from completing. Such a peer is
+        // assumed unable to initiate, so we do it immediately.
+        val weShouldInitiate = !peerAdvertisesTicket ||
+            ticket < peerTicket ||
+            now - firstSeen >= AirChatProtocol.SCAN_RETRY_AFTER_MS
+        if (!weShouldInitiate) return
 
         connecting.add(address)
         val gatt = try {
