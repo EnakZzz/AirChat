@@ -41,7 +41,9 @@ class AirChatContainer(context: Context) {
         store = store,
         transport = transport,
         scope = scope,
-        logger = diagnostics,
+        // Also to logcat: without this the protocol layer (LinkSession/AirChatNode) is invisible to
+        // `adb logcat`, which made the earlier cross-device failures undiagnosable from the host.
+        logger = FanOutLogger(AndroidLogSink(), diagnostics),
     )
 
     /** Machine-readable heartbeat consumed by tools/cross_device_test.py. */

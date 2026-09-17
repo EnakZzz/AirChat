@@ -68,8 +68,6 @@ public final class BleTransport: NSObject, Transport {
     private var txCharacteristic: CBMutableCharacteristic?
     private var rxCharacteristic: CBMutableCharacteristic?
 
-    /// Central-side state restoration identifier so iOS can resume scanning after relaunch.
-    private static let restoreIdentifier = "app.airchat.central"
 
     public init(
         logger: AirChatLogger = NoopLogger(),
@@ -93,13 +91,18 @@ public final class BleTransport: NSObject, Transport {
             // Creating the managers triggers the first state callback; advertising and scanning
             // only begin once the managers report .poweredOn.
             if centralManager == nil {
+                // Deliberately NO CBCentralManagerOptionRestoreIdentifierKey.
+                //
+                // State restoration makes iOS automatically reconnect to every peripheral the
+                // process ever connected to, which bypasses the connection-direction policy in
+                // section 5.3.1 and re-creates the symmetric-connection storm: measured with
+                // tools/cross_device_test.py as a link being created and dropped every second, with
+                // no session ever reaching READY. Re-discovery on launch is cheap and predictable,
+                // so restoration is not worth that.
                 centralManager = CBCentralManager(
                     delegate: self,
                     queue: .main,
-                    options: [
-                        CBCentralManagerOptionRestoreIdentifierKey: Self.restoreIdentifier,
-                        CBCentralManagerOptionShowPowerAlertKey: false,
-                    ]
+                    options: [CBCentralManagerOptionShowPowerAlertKey: false]
                 )
             }
             if peripheralManager == nil {
@@ -340,22 +343,6 @@ extension BleTransport: CBCentralManagerDelegate {
                 self.emit(.status(.bluetoothUnavailable, "此设备不支持蓝牙 LE"))
             default:
                 break
-            }
-        }
-    }
-
-    public func centralManager(
-        _ central: CBCentralManager,
-        willRestoreState dict: [String: Any]
-    ) {
-        queue.async { [weak self] in
-            guard let self else { return }
-            let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
-            for peripheral in restored {
-                let key = self.centralKey(peripheral.identifier.uuidString)
-                self.pendingPeripheral[peripheral.identifier.uuidString] = peripheral
-                self.connecting.insert(peripheral.identifier.uuidString)
-                self.logger.log("BleTransport", "restoring connection to \(key)")
             }
         }
     }
