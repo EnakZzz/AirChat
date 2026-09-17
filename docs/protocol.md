@@ -459,6 +459,19 @@ Android 与 iOS 的 LE 连接数都有实际上限（经验值 7–8）。因此
 
 ## 12. 本地存储 schema（两端字段名一致）
 
+### identity（单行，id 恒为 1）
+
+| 列 | 类型 | 说明 |
+| --- | --- | --- |
+| id | INTEGER PK | 恒为 1，保证只有一行 |
+| device_id | BLOB(16) | 本机 deviceId |
+| private_key | BLOB | 私钥。平台相关编码：Android 为 PKCS#8，iOS 为 CryptoKit 的 32 字节 raw scalar |
+| public_key | BLOB(65) | 未压缩点，与 `private_key` 配对。两端都必须持久化它，因为 JCA 无法从私钥标量推导公钥 |
+| nickname | TEXT | 用户昵称 |
+| created_ms | INTEGER | 首次生成时间 |
+
+> 身份一旦生成就不再变更；重新生成会使所有对端存储的公钥失效并要求重新核对安全码。
+
 ### peers
 
 | 列 | 类型 | 说明 |
