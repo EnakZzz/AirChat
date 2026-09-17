@@ -243,6 +243,10 @@ public final class AirChatNode: LinkSessionListener {
     // ---------------------------------------------------------------- outbound
 
     /// Sends a public channel message to every ready link.
+    ///
+    /// `@discardableResult`: a caller that only cares about delivery, or that is testing reception,
+    /// may ignore the outcome. A caller that cares still switches on it.
+    @discardableResult
     public func postChannelMessage(_ text: String) -> SendResult {
         queue.sync {
             let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -290,6 +294,7 @@ public final class AirChatNode: LinkSessionListener {
     }
 
     /// Sends an encrypted 1:1 message to a specific peer.
+    @discardableResult
     public func sendPrivateMessage(peerIdHex: String, text: String) -> SendResult {
         queue.sync {
             let body = text.trimmingCharacters(in: .whitespacesAndNewlines)

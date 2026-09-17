@@ -146,7 +146,7 @@ final class AirChatNodeTests: XCTestCase {
     }
 
     func testPrivateMessagesToAnUnknownPeerAreRejected() throws {
-        try withHarness { harness in
+        withHarness { harness in
             harness.connect()
             waitForReady(harness)
             let result = harness.nodeA.sendPrivateMessage(
@@ -159,7 +159,7 @@ final class AirChatNodeTests: XCTestCase {
     }
 
     func testConfirmingTheSafetyCodeIsStoredLocallyAndReportedToThePeer() throws {
-        try withHarness { harness in
+        withHarness { harness in
             harness.connect()
             waitForReady(harness)
 
@@ -184,7 +184,7 @@ final class AirChatNodeTests: XCTestCase {
     }
 
     func testARejectedSafetyCodeBlocksOutboundPrivateMessages() throws {
-        try withHarness { harness in
+        withHarness { harness in
             harness.connect()
             waitForReady(harness)
 
@@ -283,7 +283,7 @@ final class AirChatNodeTests: XCTestCase {
     }
 
     func testEmptyAndOversizedChannelMessagesAreRejected() throws {
-        try withHarness { harness in
+        withHarness { harness in
             harness.connect()
             waitForReady(harness)
 
@@ -321,7 +321,7 @@ final class AirChatNodeTests: XCTestCase {
     }
 
     func testADisconnectRemovesTheLinkAndTheNodeKeepsRunning() throws {
-        try withHarness { harness in
+        withHarness { harness in
             harness.connect()
             waitForReady(harness)
             harness.links?.0.close()

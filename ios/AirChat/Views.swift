@@ -224,7 +224,7 @@ private struct ConversationList: View {
                                 Text(conversation.nickname).font(.body.weight(.semibold))
                                 Spacer()
                                 if conversation.connected {
-                                    Text("已连接").font(.caption2).foregroundStyle(.accentColor)
+                                    Text("已连接").font(.caption2).foregroundStyle(Color.accentColor)
                                 }
                             }
                             Text(conversation.lastText)
@@ -371,7 +371,7 @@ private struct MessageRow: View {
                 if showSender && !outgoing {
                     Text(String(ByteOps.toHex(message.senderId).prefix(6)))
                         .font(.caption2)
-                        .foregroundStyle(.accentColor)
+                        .foregroundStyle(Color.accentColor)
                 }
                 Text(message.text).font(.body)
                 HStack(spacing: 4) {

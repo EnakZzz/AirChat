@@ -183,7 +183,7 @@ final class LinkSessionTests: XCTestCase {
         pair.shakeHands()
 
         let forged = try MessageCodec.encodeChannelPost(
-            try ChannelPost(
+            ChannelPost(
                 msgId: AirChatCrypto.randomMessageId(),
                 timestampMillis: 1,
                 senderId: AirChatCrypto.randomDeviceId(),
@@ -221,7 +221,7 @@ final class LinkSessionTests: XCTestCase {
 
         // AAD binds the ciphertext to the header fields: changing the recipient must break it.
         let tampered = try MessageCodec.encodePrivateMessage(
-            try PrivateMessage(
+            PrivateMessage(
                 msgId: received.message.msgId,
                 timestampMillis: received.message.timestampMillis,
                 senderId: received.message.senderId,
@@ -247,7 +247,7 @@ final class LinkSessionTests: XCTestCase {
         pair.shakeHands()
 
         let corrupted = try MessageCodec.encodePrivateMessage(
-            try PrivateMessage(
+            PrivateMessage(
                 msgId: AirChatCrypto.randomMessageId(),
                 timestampMillis: 1,
                 senderId: pair.identityA.deviceId,
@@ -328,7 +328,7 @@ final class LinkSessionTests: XCTestCase {
     func testVersionMismatchFailsTheHandshake() throws {
         let pair = SessionPair()
         let foreign = try MessageCodec.encodeHello(
-            try Hello(
+            Hello(
                 protocolVersion: 2,
                 deviceId: pair.identityB.deviceId,
                 nickname: "future",
