@@ -50,7 +50,7 @@ public final class LocalIdentity {
     public func toRecord(nickname: String) -> IdentityRecord {
         IdentityRecord(
             deviceId: deviceId,
-            privateKeyRaw: AirChatCrypto.rawRepresentation(privateKey),
+            privateKeyRaw: AirChatCrypto.privateKeyScalar(privateKey),
             publicKey: publicKeyBytes,
             nickname: nickname
         )

@@ -42,13 +42,26 @@ public enum AirChatCrypto {
         P256.KeyAgreement.PrivateKey()
     }
 
-    /// Uncompressed X9.63 point `0x04 || X || Y` (65 bytes). This is exactly CryptoKit's
-    /// `rawRepresentation`, which is also the encoding the Kotlin side produces.
+    /// Uncompressed X9.63 point `0x04 || X || Y` (65 bytes), matching the Android side and
+    /// `docs/protocol.md` section 10.1.
+    ///
+    /// CryptoKit trap, measured on macOS 27 / Xcode 27: `rawRepresentation` for a P-256 **public**
+    /// key is 64 bytes (X || Y with no tag byte), not 65. `x963Representation` is the 65-byte
+    /// `0x04 || X || Y` form the wire format requires. Using `rawRepresentation` here produces
+    /// keys that every peer rejects and that cannot be persisted, so this must stay on x9.63.
+    ///
+    /// (The **private** key is different again: its `rawRepresentation` is the 32-byte scalar,
+    /// which is what [rawRepresentation(_:)] intentionally returns.)
     public static func publicKeyBytes(_ key: P256.KeyAgreement.PublicKey) -> Data {
-        key.rawRepresentation
+        key.x963Representation
     }
 
-    public static func rawRepresentation(_ key: P256.KeyAgreement.PrivateKey) -> Data {
+    /// The 32-byte private scalar, used for persistence.
+    ///
+    /// Named explicitly rather than `rawRepresentation` because the same-looking property on a
+    /// **public** key returns a different shape (see [publicKeyBytes]). One of these two is a
+    /// trap, so they must not share a name.
+    public static func privateKeyScalar(_ key: P256.KeyAgreement.PrivateKey) -> Data {
         key.rawRepresentation
     }
 
@@ -57,7 +70,8 @@ public enum AirChatCrypto {
     }
 
     public static func publicKey(fromRaw raw: Data) throws -> P256.KeyAgreement.PublicKey {
-        try P256.KeyAgreement.PublicKey(rawRepresentation: raw)
+        // Counterpart of publicKeyBytes: 65-byte x9.63, not the 64-byte raw form.
+        try P256.KeyAgreement.PublicKey(x963Representation: raw)
     }
 
     // --------------------------------------------------------------- key agree
