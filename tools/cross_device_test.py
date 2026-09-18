@@ -337,7 +337,7 @@ class DeviceEnv:
             self.adb + ["logcat", "-v", "brief"],
             stdout=open(path, "w"), stderr=subprocess.STDOUT, text=True,
         )
-        result = run(self.adb + ["am", "start", "-n",
+        result = run(self.adb + ["shell", "am", "start", "-n",
                                  f"{self.args.android_package}/{self.args.android_activity}"] + args)
         started = "Starting:" in (result.stdout or "") + (result.stderr or "")
         if not started:
