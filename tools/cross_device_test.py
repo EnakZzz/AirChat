@@ -81,6 +81,27 @@ DEFAULT_ANDROID_PKG = "com.airchat.app.debug"
 DEFAULT_ACTIVITY = "com.airchat.app.MainActivity"
 
 
+RUNTIME_PERMISSIONS = (
+    "android.permission.BLUETOOTH_SCAN",
+    "android.permission.BLUETOOTH_CONNECT",
+    "android.permission.BLUETOOTH_ADVERTISE",
+    "android.permission.POST_NOTIFICATIONS",
+)
+
+
+def grant_android_permissions(adb: list[str], package: str) -> None:
+    """Grants the runtime permissions a fresh install would otherwise wait for.
+
+    Reinstalling the app drops every runtime permission, after which the system shows a dialog that
+    an automated run cannot answer and the app sits behind its permission gate forever. Failures are
+    logged and ignored: POST_NOTIFICATIONS is install-time on releases before Android 13.
+    """
+    for permission in RUNTIME_PERMISSIONS:
+        result = run(adb + ["shell", "pm", "grant", package, permission])
+        if result.returncode != 0:
+            log(f"note: could not grant {permission} (harmless where it is install-time)")
+
+
 def log(message: str) -> None:
     print(f"[cross-device] {message}", flush=True)
 
@@ -316,6 +337,8 @@ def main() -> int:
         if result.returncode != 0:
             log("FAIL: Android install failed:\n" + result.stdout + result.stderr)
             return 2
+        if args.reset:
+            grant_android_permissions(["adb", "-s", android_serial], args.android_package)
 
     ios_log = os.path.join(args.work_dir, "ios.log")
     android_log = os.path.join(args.work_dir, "android.log")
