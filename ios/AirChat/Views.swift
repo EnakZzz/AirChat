@@ -3,10 +3,17 @@ import SwiftUI
 
 // MARK: - 附近
 
+/// The nearby list: one row per person, whatever state their link is in.
+///
+/// Discovery and connection are automatic (the public channel depends on reaching everyone
+/// nearby), so this screen is not a "pairing wizard": it shows what the radio is already doing and
+/// turns a tap into the one step that needs a human - comparing the safety code, or opening the
+/// conversation with someone whose code was already compared. A tap on a person who is merely
+/// visible asks the transport to connect now rather than waiting for the next scan round.
 struct NearbyView: View {
 
     @ObservedObject var model: ChatViewModel
-    let onVerify: (LinkInfo) -> Void
+    let onRowClick: (NearbyRow) -> Void
 
     var body: some View {
         List {
@@ -14,52 +21,94 @@ struct NearbyView: View {
                 StatusCard(state: model.nodeState)
             }
 
-            Section("我的设备") {
-                LabeledContent("昵称", value: model.localNickname)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("设备 ID").font(.caption).foregroundStyle(.secondary)
-                    Text(model.deviceIdHex.isEmpty ? "初始化中…" : model.deviceIdHex)
-                        .font(.system(.caption, design: .monospaced))
-                }
-            }
-
-            if !model.nodeState.links.isEmpty {
-                Section("已连接（\(model.nodeState.links.count)）") {
-                    ForEach(model.nodeState.links, id: \.linkId) { link in
-                        LinkRow(link: link, onVerify: { onVerify(link) })
-                    }
-                }
-            }
-
-            if !model.nodeState.nearby.isEmpty {
-                Section("附近（\(model.nodeState.nearby.count)）") {
-                    ForEach(model.nodeState.nearby, id: \.label) { peer in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(peer.label).font(.callout)
-                            Text(subtitle(for: peer))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-
-            if model.nodeState.links.isEmpty && model.nodeState.nearby.isEmpty {
+            if model.nearby.isEmpty {
                 Section {
                     Text("还没有发现附近的人。请确认对方也打开了 AirChat，并且两台设备距离在 10–50 米内。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+            } else {
+                Section("附近（\(model.nearby.count)）") {
+                    ForEach(model.nearby) { row in
+                        Button {
+                            onRowClick(row)
+                        } label: {
+                            NearbyRowView(row: row)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
         }
         .refreshable { model.requestChannelSync() }
     }
+}
 
-    private func subtitle(for peer: NearbyPeer) -> String {
-        var parts = ["协议 v\(peer.protocolVersion)"]
-        if let rssi = peer.rssi { parts.append("\(rssi) dBm") }
-        if peer.capabilities & Capabilities.`private` != 0 { parts.append("支持私聊") }
-        return parts.joined(separator: " · ")
+private struct NearbyRowView: View {
+
+    let row: NearbyRow
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if row.state == .connecting {
+                ProgressView().controlSize(.small)
+            } else {
+                Text(row.state.label)
+                    .font(.caption2)
+                    .foregroundStyle(color)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var icon: String {
+        switch row.state {
+        case .trusted, .unverified, .rejected: return "lock.fill"
+        case .connecting, .nearby: return "dot.radiowaves.left.and.right"
+        }
+    }
+
+    private var color: Color {
+        switch row.state {
+        case .unverified: return .orange
+        case .rejected: return .red
+        case .trusted: return .accentColor
+        case .connecting, .nearby: return .secondary
+        }
+    }
+
+    /// The one-line explanation under a person's name: what the radio is doing, and how well.
+    private var subtitle: String {
+        let signal = row.rssi.map { "信号 \(signalLabel($0))" }
+        switch row.state {
+        case .nearby:
+            return signal ?? "点按连接"
+        case .connecting:
+            return "正在建立加密链路…"
+        case .unverified:
+            return ["已连接，点按核对安全码", signal].compactMap { $0 }.joined(separator: " · ")
+        case .trusted:
+            return "已连接，点按进入对话"
+        case .rejected:
+            return "安全码已标记为不匹配，点按可重新核对"
+        }
+    }
+
+    private func signalLabel(_ rssi: Int) -> String {
+        if rssi >= -60 { return "强" }
+        if rssi >= -80 { return "中" }
+        return "弱"
     }
 }
 
@@ -90,68 +139,6 @@ private struct StatusCard: View {
 
     private var detail: String {
         state.statusMessage.isEmpty ? "正在广播并扫描 AirChat 服务" : state.statusMessage
-    }
-}
-
-private struct LinkRow: View {
-    let link: LinkInfo
-    let onVerify: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(link.nickname ?? String((link.peerIdHex ?? "未知设备").prefix(8)))
-                    .font(.body.weight(.semibold))
-                Spacer()
-                TrustBadge(trustState: link.trustState)
-            }
-
-            Text(subtitle).font(.caption).foregroundStyle(.secondary)
-
-            if let code = link.safetyCode {
-                HStack(spacing: 8) {
-                    Image(systemName: "lock.fill").font(.caption)
-                    Text(code.chunked(into: 3).joined(separator: " "))
-                        .font(.system(.title3, design: .monospaced).weight(.bold))
-                }
-            }
-
-            Button("核对安全码", action: onVerify)
-                .buttonStyle(.bordered)
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var subtitle: String {
-        var parts = [link.isCentral ? "我发起的连接" : "对方连接我", "MTU \(link.mtu)"]
-        if link.peerConfirmedTheCode { parts.append("对方已确认安全码") }
-        return parts.joined(separator: " · ")
-    }
-}
-
-private struct TrustBadge: View {
-    let trustState: Int
-
-    var body: some View {
-        Text(label)
-            .font(.caption2)
-            .foregroundStyle(color)
-    }
-
-    private var label: String {
-        switch trustState {
-        case TrustState.trusted: return "已核对"
-        case TrustState.rejected: return "已拒绝"
-        default: return "未核对"
-        }
-    }
-
-    private var color: Color {
-        switch trustState {
-        case TrustState.trusted: return .accentColor
-        case TrustState.rejected: return .red
-        default: return .secondary
-        }
     }
 }
 
@@ -189,7 +176,7 @@ struct ChannelView: View {
 struct DirectView: View {
 
     @ObservedObject var model: ChatViewModel
-    let onVerify: (LinkInfo) -> Void
+    let onVerify: (String) -> Void
 
     var body: some View {
         Group {
@@ -244,7 +231,7 @@ private struct ThreadView: View {
 
     @ObservedObject var model: ChatViewModel
     let peerIdHex: String
-    let onVerify: (LinkInfo) -> Void
+    let onVerify: (String) -> Void
 
     @State private var draft = ""
 
@@ -253,11 +240,7 @@ private struct ThreadView: View {
             TrustBanner(
                 trustState: model.selectedTrustState,
                 connected: model.selectedConnected,
-                onVerify: {
-                    if let link = model.nodeState.links.first(where: { $0.peerIdHex == peerIdHex }) {
-                        onVerify(link)
-                    }
-                }
+                onVerify: { onVerify(peerIdHex) }
             )
 
             MessageList(
@@ -455,6 +438,21 @@ struct SettingsView: View {
                     .font(.system(.caption, design: .monospaced))
             }
 
+            if !model.nodeState.links.isEmpty {
+                Section("连接详情") {
+                    ForEach(model.nodeState.links, id: \.linkId) { link in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(link.nickname ?? link.peerHandle ?? link.linkId)
+                                .font(.callout)
+                                .lineLimit(1)
+                            Text(linkDetail(link))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
             Section("存储策略") {
                 Text("公共频道保留 \(AirChatProtocol.channelRetainCount) 条 / \(AirChatProtocol.channelRetainDays) 天；私聊永久保留。")
                     .font(.footnote)
@@ -485,6 +483,18 @@ struct SettingsView: View {
         }
         .onAppear { nickname = model.localNickname }
         .onChange(of: model.localNickname) { nickname = model.localNickname }
+    }
+
+    private func linkDetail(_ link: LinkInfo) -> String {
+        var parts = [link.isCentral ? "我发起" : "对方发起", "MTU \(link.mtu)"]
+        switch link.trustState {
+        case TrustState.trusted: parts.append("安全码已核对")
+        case TrustState.rejected: parts.append("已拒绝")
+        default: parts.append("未核对")
+        }
+        if link.peerConfirmedTheCode { parts.append("对方已确认") }
+        if !link.ready { parts.append("握手中") }
+        return parts.joined(separator: " · ")
     }
 }
 
