@@ -96,25 +96,39 @@ def require_tool(name: str) -> None:
 
 
 def discover_ios_udid() -> str | None:
-    """The hardware UDID of the first *connected* iPhone (offline entries are ignored)."""
+    """The hardware UDID of the first iPhone, preferring one the Instruments transport can see.
+
+    Deliberately falls back to the "Devices Offline" section. That file is a lie often enough to
+    matter: an iPhone can show up there while CoreDevice - the transport this harness actually uses
+    to install and launch - reports it as available and paired. Trusting the online section alone
+    means refusing to test a perfectly usable phone, which is exactly what happened once.
+    """
     try:
         out = run(["xcrun", "xctrace", "list", "devices"]).stdout
     except Exception as error:  # noqa: BLE001 - surfaced to the user below
         log(f"could not list iOS devices: {error}")
         return None
-    section = False
+
+    online: str | None = None
+    offline: str | None = None
+    section = ""
     for line in out.splitlines():
-        if line.startswith("== Devices =="):
-            section = True
+        if line.startswith("=="):
+            section = line
             continue
-        if line.startswith("== Devices Offline =="):
-            section = False
+        if "iPhone" not in line:
             continue
-        if section and "iPhone" in line:
-            match = re.search(r"\(([^()]+)\)\s*$", line)
-            if match:
-                return match.group(1)
-    return None
+        match = re.search(r"\(([^()]+)\)\s*$", line)
+        if not match:
+            continue
+        if "Offline" in section:
+            offline = offline or match.group(1)
+        else:
+            online = online or match.group(1)
+
+    if online is None and offline is not None:
+        log(f"note: the iPhone is only listed under Devices Offline, using it anyway: {offline}")
+    return online or offline
 
 
 def discover_android_serial() -> str | None:
