@@ -34,8 +34,13 @@ struct NearbyView: View {
                             onRowClick(row)
                         } label: {
                             NearbyRowView(row: row)
+                                // Same dead zone as the conversation list: the Spacer between the
+                                // name and the state label carries no content, so the row needs a
+                                // hit-testable shape of its own.
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderless)
                     }
                 }
             }
@@ -219,8 +224,15 @@ private struct ConversationList: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
+                        // A plain button only responds where its label has content, and the Spacer
+                        // between the name and the badge has none: the middle of the row was dead
+                        // while both ends worked. A hit-testable shape over the full width fixes it.
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    // The row is a tap target, not a replica of a link: redraw it as such rather than
+                    // making the text look tappable.
+                    .buttonStyle(.borderless)
                 }
             }
         }
