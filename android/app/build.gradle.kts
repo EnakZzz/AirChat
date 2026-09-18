@@ -82,7 +82,7 @@ dependencies {
     implementation(libs.androidx.compose.material3.window.size)
     // Compose Material3 dropped its transitive dependency on the icon artifacts, and they are
     // frozen at 1.7.8, so the handful of icons the UI uses has to be asked for explicitly.
-    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.androidx.compose.material.icons.core)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

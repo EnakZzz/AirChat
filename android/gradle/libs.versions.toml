@@ -26,7 +26,9 @@ androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 # expressive theme and its motion scheme - is only public from the 1.5 line.
 androidx-compose-material3 = { module = "androidx.compose.material3:material3", version = "1.5.0-alpha28" }
 androidx-compose-material3-window-size = { module = "androidx.compose.material3:material3-window-size-class" }
-androidx-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended", version = "1.7.8" }
+# The icon artifacts are frozen at 1.7.8 and no longer arrive transitively with material3.
+# Core, not extended: extended is tens of megabytes for thousands of icons and the UI uses nine.
+androidx-compose-material-icons-core = { module = "androidx.compose.material:material-icons-core", version = "1.7.8" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
