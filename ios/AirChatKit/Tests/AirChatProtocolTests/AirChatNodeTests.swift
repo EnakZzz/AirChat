@@ -583,7 +583,7 @@ final class AirChatNodeTests: XCTestCase {
 
             Thread.sleep(forTimeInterval: 0.15)
             XCTAssertTrue(
-                harness.nodeA.state.nearby.all { $0.peerIdHex == nil },
+                harness.nodeA.state.nearby.allSatisfy { $0.peerIdHex == nil },
                 "an ambiguous match must not be guessed"
             )
         }
