@@ -318,7 +318,17 @@ public final class LinkSession {
             responderHelloNonce: isInitiator ? hello.helloNonce : myHelloNonce
         )
         state = .ready
-        logger.log("LinkSession", "handshake complete with \(hello.nickname) (\(hello.deviceIdHex))")
+        // The nonces are logged because a safety code that disagrees between two devices which
+        // otherwise share a session key can only come from the two ends ordering (or holding)
+        // different nonces, and nothing else in the logs would show it.
+        let initiatorNonce = isInitiator ? myHelloNonce : hello.helloNonce
+        let responderNonce = isInitiator ? hello.helloNonce : myHelloNonce
+        logger.log(
+            "LinkSession",
+            "handshake complete with \(hello.nickname) (\(hello.deviceIdHex)) "
+                + "initiator=\(isInitiator) code=\(safetyCode ?? "nil") "
+                + "init=\(ByteOps.toHex(initiatorNonce)) resp=\(ByteOps.toHex(responderNonce))"
+        )
         listener?.onReady(session: self, peer: hello)
     }
 

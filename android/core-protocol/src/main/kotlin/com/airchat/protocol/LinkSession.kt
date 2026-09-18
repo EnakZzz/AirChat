@@ -290,7 +290,16 @@ class LinkSession(
             responderHelloNonce = if (isInitiator) hello.helloNonce else myHelloNonce,
         )
         state = SessionState.READY
-        logger.log(TAG, "handshake complete with ${hello.nickname} (${ByteOps.toHex(hello.deviceId)})")
+        // The nonces are logged because a safety code that disagrees between two devices which
+        // otherwise share a session key can only come from the two ends ordering (or holding)
+        // different nonces, and nothing else in the logs would show it.
+        logger.log(
+            TAG,
+            "handshake complete with ${hello.nickname} (${ByteOps.toHex(hello.deviceId)}) " +
+                "initiator=$isInitiator code=$safetyCode " +
+                "init=${ByteOps.toHex(if (isInitiator) myHelloNonce else hello.helloNonce)} " +
+                "resp=${ByteOps.toHex(if (isInitiator) hello.helloNonce else myHelloNonce)}",
+        )
         listener.onReady(this, hello)
     }
 
