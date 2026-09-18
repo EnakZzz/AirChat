@@ -332,9 +332,13 @@ public final class AirChatNode: LinkSessionListener {
             pendingConnect = nil
             return
         }
+        // A handle is not a stable identity across roles: on iOS the identifier of a peer seen while
+        // scanning differs from the identifier of the same peer connecting to us (verified on
+        // device), so the elimination pass below is what makes a tap resolvable at all.
+        attributeUnclaimedNearby()
         guard
             let session = sessions.values.first(where: {
-                $0.isReady && $0.link.peerLabel == pending.handle
+                $0.isReady && matchesPending($0, pending)
             }),
             let deviceId = session.peer?.deviceId
         else {
@@ -355,6 +359,46 @@ public final class AirChatNode: LinkSessionListener {
     /// deviceId this handle is known by: a live link first, the session memory second.
     private func peerIdForHandle(_ handle: String) -> String? {
         sessions.values.first { $0.link.peerLabel == handle }?.peerDeviceIdHex ?? handleToPeerId[handle]
+    }
+
+    /// Whether a completed link is the peer behind an outstanding tap.
+    private func matchesPending(_ session: LinkSession, _ pending: (handle: String, deadlineMs: Int64)) -> Bool {
+        if session.link.peerLabel == pending.handle { return true }
+        guard let attributed = peerIdForHandle(pending.handle) else { return false }
+        return session.peerDeviceIdHex == attributed
+    }
+
+    /// Attributes an advertisement to a link when the handles cannot be compared.
+    ///
+    /// A platform handle is not a stable identity across roles, so a link whose handle never
+    /// appeared in the nearby list can only be recognised by elimination - and only when there is
+    /// exactly one such link and one unattributed advertisement. Guessing between two people would
+    /// attach one person's safety code to the other, which is worse than leaving the rows separate.
+    private func attributeUnclaimedNearby() {
+        let attributed = Set(nearby.values.compactMap { $0.peerIdHex })
+        let unclaimedLinks = sessions.values.filter {
+            guard let peerHex = $0.peerDeviceIdHex else { return false }
+            return $0.isReady && !attributed.contains(peerHex)
+        }
+        guard unclaimedLinks.count == 1 else { return }
+        let link = unclaimedLinks[0]
+        // A handle that did show up in the list is already handled by the direct comparison.
+        if let handle = link.link.peerLabel, nearby[handle] != nil { return }
+        let unclaimedEntries = nearby.values.filter { $0.peerIdHex == nil }
+        guard unclaimedEntries.count == 1 else { return }
+        guard let peerHex = link.peerDeviceIdHex else { return }
+        let entry = unclaimedEntries[0]
+        handleToPeerId[entry.label] = peerHex
+        nearby[entry.label] = NearbyPeer(
+            label: entry.label,
+            protocolVersion: entry.protocolVersion,
+            capabilities: entry.capabilities,
+            rssi: entry.rssi,
+            firstSeenMs: entry.firstSeenMs,
+            lastSeenMs: entry.lastSeenMs,
+            peerIdHex: peerHex
+        )
+        logger.log("AirChatNode", "attributed advertisement \(entry.label) to \(peerHex) by elimination")
     }
 
     // ---------------------------------------------------------------- outbound
@@ -896,6 +940,7 @@ public final class AirChatNode: LinkSessionListener {
         nearby = nearby.filter { now - $0.value.lastSeenMs <= Self.nearbyTtlMs }
         // Attribute every handle we can: this is what lets the list show one row per person with a
         // real nickname instead of the same device twice, once by handle and once by deviceId.
+        // Handle comparison first, then elimination for links whose handle never appeared.
         for (label, peer) in nearby {
             let known = peerIdForHandle(label)
             guard peer.peerIdHex != known else { continue }
@@ -909,6 +954,7 @@ public final class AirChatNode: LinkSessionListener {
                 peerIdHex: known
             )
         }
+        attributeUnclaimedNearby()
 
         var links: [LinkInfo] = []
         links.reserveCapacity(sessions.count)

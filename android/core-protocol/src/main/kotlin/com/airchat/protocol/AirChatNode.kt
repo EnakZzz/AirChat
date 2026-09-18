@@ -270,8 +270,12 @@ class AirChatNode(
             pendingConnect = null
             return
         }
+        // A handle is not a stable identity across roles: on iOS the identifier of a peer seen
+        // while scanning differs from the identifier of the same peer connecting to us (verified on
+        // device), so the elimination pass below is what makes a tap resolvable at all.
+        attributeUnclaimedNearby()
         val session = sessions.values.firstOrNull {
-            it.isReady && it.link.peerLabel == pending.handle
+            it.isReady && matchesPending(it, pending)
         }
         if (session == null) {
             // Worth a line: it means the handle the user tapped is not the handle the connection
@@ -293,6 +297,39 @@ class AirChatNode(
     private fun peerIdForHandle(handle: String): String? =
         sessions.values.firstOrNull { it.link.peerLabel == handle }?.peerDeviceIdHex
             ?: handleToPeerId[handle]
+
+    /** Whether a completed link is the peer behind an outstanding tap. */
+    private fun matchesPending(session: LinkSession, pending: PendingConnect): Boolean {
+        if (session.link.peerLabel == pending.handle) return true
+        val attributed = peerIdForHandle(pending.handle) ?: return false
+        return session.peerDeviceIdHex == attributed
+    }
+
+    /**
+     * Attributes an advertisement to a link when the handles cannot be compared.
+     *
+     * A platform handle is not a stable identity across roles, so a link whose handle never appeared
+     * in the nearby list can only be recognised by elimination - and only when there is exactly one
+     * such link and one unattributed advertisement. Guessing between two people would attach one
+     * person's safety code to the other, which is worse than leaving the rows separate.
+     */
+    private fun attributeUnclaimedNearby() {
+        val attributed = nearby.values.mapNotNull { it.peerIdHex }.toSet()
+        val unclaimedLinks = sessions.values.filter {
+            it.isReady && it.peerDeviceIdHex != null && it.peerDeviceIdHex !in attributed
+        }
+        if (unclaimedLinks.size != 1) return
+        val link = unclaimedLinks.single()
+        // A handle that did show up in the list is already handled by the direct comparison.
+        if (link.link.peerLabel?.let { nearby.containsKey(it) } == true) return
+        val unclaimedEntries = nearby.values.filter { it.peerIdHex == null }
+        if (unclaimedEntries.size != 1) return
+        val entry = unclaimedEntries.single()
+        val peerHex = link.peerDeviceIdHex ?: return
+        handleToPeerId[entry.label] = peerHex
+        nearby[entry.label] = entry.copy(peerIdHex = peerHex)
+        logger.log(TAG, "attributed advertisement ${entry.label} to $peerHex by elimination")
+    }
 
     // ---------------------------------------------------------------- outbound
 
@@ -800,15 +837,19 @@ class AirChatNode(
     private suspend fun publishState() {
         val me = identity
         val now = clock()
+
+        // Attribution runs before the snapshot is taken: handle comparison first, then elimination
+        // for the links whose handle never appeared in the advertising list.
+        for (peer in nearby.values.toList()) {
+            val known = peerIdForHandle(peer.label)
+            if (peer.peerIdHex != known) nearby[peer.label] = peer.copy(peerIdHex = known)
+        }
+        attributeUnclaimedNearby()
+
         _state.value = _state.value.copy(
             deviceIdHex = me?.deviceIdHex ?: "",
             nickname = nicknameInternal,
-            nearby = nearby.values
-                .map { peer ->
-                    val known = peerIdForHandle(peer.label)
-                    if (peer.peerIdHex == known) peer else peer.copy(peerIdHex = known)
-                }
-                .sortedByDescending { it.lastSeenMs },
+            nearby = nearby.values.sortedByDescending { it.lastSeenMs },
             links = sessions.values.map { session ->
                 val peerHex = session.peerDeviceIdHex
                 LinkInfo(

@@ -109,6 +109,7 @@ class DiagnosticStateReporter(
                 append(",\"ready\":").append(link.ready)
                 append(",\"central\":").append(link.isCentral)
                 append(",\"mtu\":").append(link.mtu)
+                append(",\"trust\":").append(link.trustState)
                 append(",\"code\":")
                 if (link.safetyCode == null) append("null") else append('"').append(link.safetyCode).append('"')
                 append('}')

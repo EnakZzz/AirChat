@@ -76,7 +76,7 @@ final class DiagnosticStateReporter {
             let peer = link.peerIdHex.map { "\"\($0)\"" } ?? "null"
             let code = link.safetyCode.map { "\"\($0)\"" } ?? "null"
             return "{\"peer\":\(peer),\"ready\":\(link.ready),\"central\":\(link.isCentral),"
-                + "\"mtu\":\(link.mtu),\"code\":\(code)}"
+                + "\"mtu\":\(link.mtu),\"trust\":\(link.trustState),\"code\":\(code)}"
         }
         let line = "AIRCHAT_STATE {\"platform\":\"ios\","
             + "\"self\":\"\(state.deviceIdHex)\","

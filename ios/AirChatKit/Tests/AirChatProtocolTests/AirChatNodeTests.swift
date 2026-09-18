@@ -543,6 +543,52 @@ final class AirChatNodeTests: XCTestCase {
         XCTAssertEqual(identityB.deviceIdHex, events.prompts.first)
     }
 
+    func testATapIsResolvedByEliminationWhenTheHandleChangesWithTheRole() throws {
+        try withHarness { harness in
+            // On iOS the identifier of a peer seen while scanning differs from the identifier of the
+            // same peer connecting to us - measured on device - so the handle cannot be compared.
+            harness.transportA.reportSeen(label: "SCANNED-BY-A")
+            waitUntil("nodeA shows the advertisement") {
+                harness.nodeA.state.nearby.first?.label == "SCANNED-BY-A"
+            }
+
+            let events = recordEvents(harness.nodeA)
+            XCTAssertEqual(ConnectResult.started, harness.nodeA.requestConnect(peerHandle: "SCANNED-BY-A"))
+
+            // The link reports a completely different handle for the same person.
+            harness.connect(labelA: "CONNECTED-AS", labelB: "SOMETHING-ELSE")
+            waitForReady(harness)
+
+            waitUntil("the prompt fired for the tapped peer") { events.prompts.count == 1 }
+            XCTAssertEqual(harness.nodeB.deviceIdHex, events.prompts.first)
+            // The attribution is what stops the list from showing that person twice: once by handle
+            // and once by deviceId.
+            waitUntil("the advertisement is attributed to the peer") {
+                harness.nodeA.state.nearby.first?.peerIdHex == harness.nodeB.deviceIdHex
+            }
+        }
+    }
+
+    func testEliminationRefusesToAttributeWhenTwoCandidatesAreUnattributed() throws {
+        try withHarness { harness in
+            // Two advertisements and one link that matches neither handle: attributing either entry
+            // would attach one person's identity to another person's safety code, so nothing is
+            // claimed.
+            harness.transportA.reportSeen(label: "ENTRY-ONE")
+            harness.transportA.reportSeen(label: "ENTRY-TWO")
+            waitUntil("nodeA shows both advertisements") { harness.nodeA.state.nearby.count == 2 }
+
+            harness.connect(labelA: "CONNECTED-AS", labelB: "SOMETHING-ELSE")
+            waitForReady(harness)
+
+            Thread.sleep(forTimeInterval: 0.15)
+            XCTAssertTrue(
+                harness.nodeA.state.nearby.all { $0.peerIdHex == nil },
+                "an ambiguous match must not be guessed"
+            )
+        }
+    }
+
     func testAtTheLinkCapATapIsRefusedWithoutAskingTheTransport() throws {
         let transportA = FakeTransport()
         let transportB = FakeTransport()

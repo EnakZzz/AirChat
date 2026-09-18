@@ -260,6 +260,11 @@ def main() -> int:
     parser.add_argument("--ios-app", help="install this .app before testing")
     parser.add_argument("--timeout", type=int, default=75, help="seconds to wait for a ready link")
     parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="uninstall both apps before installing, so nothing is carried over",
+    )
+    parser.add_argument(
         "--connect-first",
         action="store_true",
         help="tap the first nearby person instead of sending a scripted message",
@@ -281,6 +286,15 @@ def main() -> int:
         return 2
     log(f"iPhone {ios_udid}  |  Android {android_serial}")
 
+    if args.reset:
+        # A trust verdict, and the identity that goes with it, is persisted on purpose. A run that
+        # wants to observe a *first* connection therefore has to start without one - otherwise the
+        # safety code is already trusted and correctly not offered again, which looks like a failure.
+        log("uninstalling both apps to start from a clean state")
+        run(["xcrun", "devicectl", "device", "uninstall", "app",
+             "--device", ios_udid, args.ios_bundle], timeout=180)
+        run(["adb", "-s", android_serial, "uninstall", args.android_package], timeout=180)
+
     if args.ios_app:
         log(f"installing {args.ios_app}")
         result = run(["xcrun", "devicectl", "device", "install", "app",
@@ -290,7 +304,15 @@ def main() -> int:
             return 2
     if args.android_apk:
         log(f"installing {args.android_apk}")
-        result = run(["adb", "-s", android_serial, "install", "-r", args.android_apk], timeout=300)
+        try:
+            result = run(["adb", "-s", android_serial, "install", "-r", "-t", args.android_apk], timeout=300)
+        except subprocess.TimeoutExpired:
+            log(
+                "FAIL: Android install timed out after 300s. This is almost always a dialog on the "
+                "phone - a USB connection-mode chooser or an install confirmation - and the transfer "
+                "itself is fine: unplug/replug, choose a file-transfer mode and dismiss the dialog."
+            )
+            return 2
         if result.returncode != 0:
             log("FAIL: Android install failed:\n" + result.stdout + result.stderr)
             return 2

@@ -518,6 +518,49 @@ class AirChatNodeTest {
     }
 
     @Test
+    fun `a tap is resolved by elimination when the handle changes with the role`() = withHarness { h ->
+        // On iOS the identifier of a peer seen while scanning differs from the identifier of the same
+        // peer connecting to us - measured on device - so the handle cannot be compared at all.
+        h.transportA.reportSeen("SCANNED-BY-A")
+        awaitUntil("nodeA shows the advertisement") {
+            h.nodeA.state.value.nearby.single().label == "SCANNED-BY-A"
+        }
+
+        val events = h.scope.recordEvents(h.nodeA)
+        assertEquals(ConnectResult.Started, h.nodeA.requestConnect("SCANNED-BY-A"))
+
+        // The link reports a completely different handle for the same person.
+        h.connect(labelA = "CONNECTED-AS", labelB = "SOMETHING-ELSE")
+        h.awaitBothReady()
+
+        awaitUntil("the prompt fired for the tapped peer") { events.prompts().size == 1 }
+        assertEquals(h.nodeB.deviceIdHex, events.prompts().single().peerIdHex)
+        // The attribution is what stops the list from showing that person twice: once by handle and
+        // once by deviceId.
+        awaitUntil("the advertisement is attributed to the peer") {
+            h.nodeA.state.value.nearby.single().peerIdHex == h.nodeB.deviceIdHex
+        }
+    }
+
+    @Test
+    fun `elimination refuses to attribute when two candidates are unattributed`() = withHarness { h ->
+        // Two advertisements and one link that matches neither handle: attributing either entry
+        // would attach one person's identity to another person's safety code, so nothing is claimed.
+        h.transportA.reportSeen("ENTRY-ONE")
+        h.transportA.reportSeen("ENTRY-TWO")
+        awaitUntil("nodeA shows both advertisements") { h.nodeA.state.value.nearby.size == 2 }
+
+        h.connect(labelA = "CONNECTED-AS", labelB = "SOMETHING-ELSE")
+        h.awaitBothReady()
+
+        delay(150)
+        assertTrue(
+            "an ambiguous match must not be guessed",
+            h.nodeA.state.value.nearby.all { it.peerIdHex == null },
+        )
+    }
+
+    @Test
     fun `at the link cap a tap is refused without asking the transport`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
