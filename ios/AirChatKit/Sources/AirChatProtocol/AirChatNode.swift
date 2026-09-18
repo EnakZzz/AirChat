@@ -217,8 +217,9 @@ public final class AirChatNode: LinkSessionListener {
         /// How long a tap stays in flight before it is reported as not connecting. A seam, so the
         /// expiry path is testable in milliseconds rather than in 20 seconds.
         pendingConnectMs: Int64 = 20_000,
-        /// How long one scan runs before stopping itself; a seam so the window is testable.
-        scanWindowMs: Int64 = AirChatNode.defaultScanWindowMs
+        /// How long one scan runs before stopping itself: long enough to see a phone come into
+        /// range, short enough to be idle. A seam, so the window is testable in milliseconds.
+        scanWindowMs: Int64 = 30_000
     ) {
         self.store = store
         self.transport = transport
@@ -1080,7 +1081,4 @@ public final class AirChatNode: LinkSessionListener {
     }
 
     private static let nearbyTtlMs: Int64 = 15_000
-
-    /// One scan window: long enough to see a phone come into range, short enough to be idle.
-    static let defaultScanWindowMs: Int64 = 30_000
 }
