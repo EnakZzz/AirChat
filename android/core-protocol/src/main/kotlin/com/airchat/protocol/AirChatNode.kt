@@ -272,7 +272,17 @@ class AirChatNode(
         }
         val session = sessions.values.firstOrNull {
             it.isReady && it.link.peerLabel == pending.handle
-        } ?: return
+        }
+        if (session == null) {
+            // Worth a line: it means the handle the user tapped is not the handle the connection
+            // reports, which no other log would reveal - the tap simply looks ignored.
+            logger.log(
+                TAG,
+                "tap on ${pending.handle} matches no ready link " +
+                    "(ready handles: ${sessions.values.filter { it.isReady }.map { it.link.peerLabel }})",
+            )
+            return
+        }
         val deviceId = session.peer?.deviceId ?: return
         pendingConnect = null
         if (store.getPeer(deviceId)?.trustState == TrustState.TRUSTED) return

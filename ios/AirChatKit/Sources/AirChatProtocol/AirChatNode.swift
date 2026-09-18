@@ -337,7 +337,16 @@ public final class AirChatNode: LinkSessionListener {
                 $0.isReady && $0.link.peerLabel == pending.handle
             }),
             let deviceId = session.peer?.deviceId
-        else { return }
+        else {
+            // Worth a line: it means the handle the user tapped is not the handle the connection
+            // reports, which no other log would reveal - the tap simply looks ignored.
+            let handles = sessions.values.filter { $0.isReady }.map { $0.link.peerLabel ?? "?" }
+            logger.log(
+                "AirChatNode",
+                "tap on \(pending.handle) matches no ready link (ready handles: \(handles))"
+            )
+            return
+        }
         pendingConnect = nil
         if (try? store.getPeer(deviceId))?.trustState == TrustState.trusted { return }
         emitEvent(.verifyRequested(peerIdHex: ByteOps.toHex(deviceId)))
