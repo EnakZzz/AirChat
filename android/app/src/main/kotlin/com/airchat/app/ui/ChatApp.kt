@@ -3,6 +3,7 @@ package com.airchat.app.ui
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -92,16 +93,34 @@ import com.airchat.app.R
 import com.airchat.app.RadioController
 import com.airchat.protocol.ByteOps
 import com.airchat.protocol.ChatStatus
-import com.airchat.protocol.LinkInfo
 import com.airchat.protocol.MessageDirection
 import com.airchat.protocol.MessageRecord
 import com.airchat.protocol.MessageStatus
-import com.airchat.protocol.NearbyPeer
 import com.airchat.protocol.NodeState
 import com.airchat.protocol.TrustState
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+
+/**
+ * The five states a person's row can be in, declared in display order: whoever needs a decision
+ * comes first, then whoever is reachable, then whoever is merely visible.
+ */
+enum class NearbyState(@StringRes val labelRes: Int) {
+    UNVERIFIED(R.string.nearby_state_unverified),
+    REJECTED(R.string.nearby_state_rejected),
+    TRUSTED(R.string.nearby_state_trusted),
+    CONNECTING(R.string.nearby_state_connecting),
+    NEARBY(R.string.nearby_state_nearby),
+}
+
+@Composable
+private fun NearbyState.color(): Color = when (this) {
+    NearbyState.UNVERIFIED -> Color(0xFFE07B00)
+    NearbyState.REJECTED -> MaterialTheme.colorScheme.error
+    NearbyState.TRUSTED -> MaterialTheme.colorScheme.primary
+    NearbyState.CONNECTING, NearbyState.NEARBY -> MaterialTheme.colorScheme.onSurfaceVariant
+}
 
 private enum class Tab(val labelRes: Int, val icon: ImageVector) {
     Nearby(R.string.tab_nearby, Icons.Filled.Place),
@@ -282,8 +301,32 @@ private fun ChatShell(
             Box(modifier = Modifier.fillMaxSize()) {
                 when (selectedTab) {
                     Tab.Nearby -> NearbyScreen(
-                        state = uiState.node,
-                        onConfirmSafety = viewModel::confirmSafety,
+                        state = uiState,
+                        onRowClick = { row ->
+                            // One tap means three different things depending on state, which is what
+                            // keeps the screen free of buttons: reach out, compare the code, or open
+                            // the conversation.
+                            when (row.state) {
+                                NearbyState.NEARBY -> viewModel.requestConnect(row.label)
+                                NearbyState.UNVERIFIED, NearbyState.REJECTED ->
+                                    row.peerIdHex?.let(viewModel::requestVerification)
+                                NearbyState.TRUSTED -> row.peerIdHex?.let { peer ->
+                                    tabName = Tab.Direct.name
+                                    viewModel.selectConversation(peer)
+                                }
+                                NearbyState.CONNECTING -> Unit
+                            }
+                        },
+                        onConfirmSafety = { peer, accepted ->
+                            viewModel.confirmSafety(peer, accepted)
+                            // Confirming in person is the end of the connection flow: land the user in
+                            // the conversation rather than dropping them back on the list.
+                            if (accepted) {
+                                tabName = Tab.Direct.name
+                                viewModel.selectConversation(peer)
+                            }
+                        },
+                        onDismissVerify = viewModel::dismissVerification,
                         onRefresh = viewModel::refreshRadio,
                     )
 
@@ -316,21 +359,30 @@ private fun ChatShell(
 
 // ---------------------------------------------------------------------- 附近
 
+/**
+ * The nearby list: one row per person, whatever state their link is in.
+ *
+ * Discovery and connection are automatic (the public channel depends on reaching everyone
+ * nearby), so this screen is not a "pairing wizard": it shows what the radio is already doing and
+ * turns a tap into the one step that needs a human - comparing the safety code, or opening the
+ * conversation with someone whose code was already compared. A tap on a person who is merely
+ * visible asks the transport to connect now rather than waiting for the next scan round.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NearbyScreen(
-    state: NodeState,
+    state: ChatUiState,
+    onRowClick: (NearbyRow) -> Unit,
     onConfirmSafety: (String, Boolean) -> Unit,
+    onDismissVerify: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    var verifyingLink by remember { mutableStateOf<LinkInfo?>(null) }
-
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(stringResource(R.string.tab_nearby)) },
             actions = {
                 IconButton(onClick = onRefresh) {
-                    Icon(Icons.Filled.Place, contentDescription = "重新扫描")
+                    Icon(Icons.Filled.Place, contentDescription = stringResource(R.string.nearby_rescan))
                 }
             },
         )
@@ -338,34 +390,17 @@ private fun NearbyScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { StatusCard(state) }
-
-            item {
-                ListItem(
-                    headlineContent = {
-                        Text(state.nickname.ifBlank { "未命名" }, fontWeight = FontWeight.SemiBold)
-                    },
-                    supportingContent = { Text("我的设备 · ${state.deviceIdHex.take(12)}…") },
-                    leadingContent = { Icon(Icons.Filled.Person, contentDescription = null) },
-                )
-            }
-
-            if (state.links.isNotEmpty()) {
-                item { SectionTitle("已连接（${state.links.size}）") }
-                items(state.links, key = { it.linkId }) { link ->
-                    LinkCard(link = link, onVerify = { verifyingLink = link })
-                }
-            }
+            item { StatusCard(state.node) }
 
             if (state.nearby.isNotEmpty()) {
-                item { SectionTitle("附近（${state.nearby.size}）") }
-                items(state.nearby, key = { it.label }) { peer -> NearbyRow(peer) }
-            }
-
-            if (state.links.isEmpty() && state.nearby.isEmpty()) {
+                item { SectionTitle(stringResource(R.string.nearby_section, state.nearby.size)) }
+                items(state.nearby, key = { it.key }) { row ->
+                    NearbyRowItem(row = row, onClick = { onRowClick(row) })
+                }
+            } else {
                 item {
                     Text(
-                        "还没有发现附近的人。请确认对方也打开了 AirChat，并且两台设备距离在 10–50 米内。",
+                        stringResource(R.string.nearby_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -374,19 +409,13 @@ private fun NearbyScreen(
         }
     }
 
-    verifyingLink?.let { link ->
+    state.verifyRequest?.let { request ->
         SafetyCodeDialog(
-            nickname = link.nickname ?: "对方",
-            code = link.safetyCode,
-            onConfirm = {
-                link.peerIdHex?.let { onConfirmSafety(it, true) }
-                verifyingLink = null
-            },
-            onReject = {
-                link.peerIdHex?.let { onConfirmSafety(it, false) }
-                verifyingLink = null
-            },
-            onDismiss = { verifyingLink = null },
+            nickname = request.nickname,
+            code = request.code,
+            onConfirm = { onConfirmSafety(request.peerIdHex, true) },
+            onReject = { onConfirmSafety(request.peerIdHex, false) },
+            onDismiss = onDismissVerify,
         )
     }
 }
@@ -444,92 +473,67 @@ private fun StatusCard(state: NodeState) {
 }
 
 @Composable
-private fun LinkCard(link: LinkInfo, onVerify: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    link.nickname ?: link.peerIdHex?.take(8) ?: "未知设备",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                TrustBadge(link.trustState)
-            }
-            Spacer(Modifier.height(4.dp))
+private fun NearbyRowItem(row: NearbyRow, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = {
+            Text(row.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        supportingContent = {
             Text(
-                buildString {
-                    append(if (link.isCentral) "我发起的连接" else "对方连接我")
-                    append(" · MTU ${link.mtu}")
-                    if (link.peerConfirmedTheCode) append(" · 对方已确认安全码")
-                },
+                text = row.subtitle(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            // Captured into a local because LinkInfo crosses a module boundary, which blocks
-            // the smart cast the null check would otherwise provide.
-            val safetyCode = link.safetyCode
-            if (safetyCode != null) {
-                Spacer(Modifier.height(8.dp))
-                SafetyCodeRow(code = safetyCode)
-            }
-            Spacer(Modifier.height(8.dp))
-            FilledTonalButton(onClick = onVerify) { Text("核对安全码") }
-        }
-    }
-}
-
-@Composable
-private fun SafetyCodeRow(code: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.size(8.dp))
-        Text(
-            code.chunked(3).joinToString(" "),
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp,
-            style = MaterialTheme.typography.titleLarge,
-        )
-    }
-}
-
-@Composable
-private fun TrustBadge(trustState: Int) {
-    val label: String
-    val color: Color
-    when (trustState) {
-        TrustState.TRUSTED -> {
-            label = stringResource(R.string.link_verified)
-            color = MaterialTheme.colorScheme.primary
-        }
-        TrustState.REJECTED -> {
-            label = stringResource(R.string.link_rejected)
-            color = MaterialTheme.colorScheme.error
-        }
-        else -> {
-            label = stringResource(R.string.link_unverified)
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        }
-    }
-    Text(label, style = MaterialTheme.typography.labelMedium, color = color)
-}
-
-@Composable
-private fun NearbyRow(peer: NearbyPeer) {
-    ListItem(
-        headlineContent = { Text(peer.label) },
-        supportingContent = {
-            Text(
-                buildString {
-                    append("协议 v${peer.protocolVersion}")
-                    peer.rssi?.let { append(" · $it dBm") }
-                    if ((peer.capabilities and 0x01) != 0) append(" · 支持私聊")
+        },
+        leadingContent = {
+            Icon(
+                imageVector = when (row.state) {
+                    NearbyState.TRUSTED, NearbyState.UNVERIFIED, NearbyState.REJECTED -> Icons.Filled.Lock
+                    else -> Icons.Filled.Place
                 },
+                contentDescription = null,
             )
         },
-        leadingContent = { Icon(Icons.Filled.Place, contentDescription = null) },
+        trailingContent = {
+            if (row.state == NearbyState.CONNECTING) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            } else {
+                Text(
+                    text = stringResource(row.state.labelRes),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = row.state.color(),
+                )
+            }
+        },
+        modifier = Modifier.clickableRow(onClick),
     )
 }
+
+/** The one-line explanation under a person's name: what the radio is doing, and how well. */
+@Composable
+private fun NearbyRow.subtitle(): String {
+    val signal = rssi?.let { stringResource(R.string.nearby_signal, signalLabel(it)) }
+    return when (state) {
+        NearbyState.NEARBY -> signal ?: stringResource(R.string.nearby_state_nearby)
+        NearbyState.CONNECTING -> stringResource(R.string.nearby_connecting_detail)
+        NearbyState.UNVERIFIED -> if (signal == null) {
+            stringResource(R.string.nearby_unverified_detail)
+        } else {
+            stringResource(R.string.nearby_unverified_detail) + " · " + signal
+        }
+        NearbyState.TRUSTED -> stringResource(R.string.nearby_trusted_detail)
+        NearbyState.REJECTED -> stringResource(R.string.nearby_rejected_detail)
+    }
+}
+
+@Composable
+private fun signalLabel(rssi: Int): String = stringResource(
+    when {
+        rssi >= -60 -> R.string.nearby_signal_strong
+        rssi >= -80 -> R.string.nearby_signal_medium
+        else -> R.string.nearby_signal_weak
+    },
+)
 
 @Composable
 private fun SectionTitle(text: String) {
@@ -956,6 +960,35 @@ private fun SettingsScreen(
                         )
                     },
                 )
+            }
+            if (state.links.isNotEmpty()) {
+                item { SectionTitle(stringResource(R.string.settings_links_title)) }
+                items(state.links, key = { it.linkId }) { link ->
+                    ListItem(
+                        headlineContent = {
+                            Text(link.nickname ?: link.peerHandle ?: link.linkId, maxLines = 1)
+                        },
+                        supportingContent = {
+                            Text(
+                                buildString {
+                                    append(if (link.isCentral) "我发起" else "对方发起")
+                                    append(" · MTU ${link.mtu}")
+                                    append(
+                                        when (link.trustState) {
+                                            TrustState.TRUSTED -> " · 安全码已核对"
+                                            TrustState.REJECTED -> " · 已拒绝"
+                                            else -> " · 未核对"
+                                        },
+                                    )
+                                    if (link.peerConfirmedTheCode) append(" · 对方已确认")
+                                    if (!link.ready) append(" · 握手中")
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                    )
+                }
             }
             item {
                 ListItem(

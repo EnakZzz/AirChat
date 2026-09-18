@@ -17,6 +17,24 @@
     <string name="bluetooth_off_body">AirChat 完全依赖蓝牙点对点通信，没有服务器中转。请打开蓝牙后继续。</string>
     <string name="bluetooth_off_action">打开蓝牙</string>
 
+    <string name="nearby_rescan">重新扫描</string>
+    <string name="nearby_section">附近（%1$d）</string>
+    <string name="nearby_empty">还没有发现附近的人。请确认对方也打开了 AirChat，并且两台设备距离在 10–50 米内。</string>
+    <string name="nearby_signal">信号 %1$s</string>
+    <string name="nearby_signal_strong">强</string>
+    <string name="nearby_signal_medium">中</string>
+    <string name="nearby_signal_weak">弱</string>
+    <string name="nearby_state_nearby">可连接</string>
+    <string name="nearby_state_connecting">连接中…</string>
+    <string name="nearby_state_unverified">待核对</string>
+    <string name="nearby_state_trusted">已连接</string>
+    <string name="nearby_state_rejected">已拒绝</string>
+    <string name="nearby_connecting_detail">正在建立加密链路…</string>
+    <string name="nearby_unverified_detail">已连接，点按核对安全码</string>
+    <string name="nearby_trusted_detail">已连接，点按进入对话</string>
+    <string name="nearby_rejected_detail">安全码已标记为不匹配，点按可重新核对</string>
+    <string name="settings_links_title">连接详情</string>
+
     <string name="nearing_full">附近人数已满（上限 8 人）</string>
     <string name="status_scanning">正在寻找附近的人…</string>
     <string name="status_stopped">已停止</string>
