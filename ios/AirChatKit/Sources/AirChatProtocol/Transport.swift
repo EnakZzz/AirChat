@@ -54,6 +54,14 @@ public protocol Transport: AnyObject {
     /// Refreshes the presence block carried in the advertising packet.
     func updatePresence(protocolVersion: Int, capabilities: Int)
 
+    /// Connection explicitly asked for by the user, for the peer advertising under `peerLabel`.
+    ///
+    /// Bypasses the connection-direction policy (protocol section 5.3) because the user outranks
+    /// the ticket comparison, but not the link cap or the reconnect backoff. Outcomes are reported
+    /// through state rather than a return value: a link for that peer appearing (or not) is the
+    /// only truthful signal early enough to be useful.
+    func connectTo(peerLabel: String)
+
     /// Registers the event consumer. Called once, before `start()`.
     func setEventHandler(_ handler: @escaping (TransportEvent) -> Void)
 }

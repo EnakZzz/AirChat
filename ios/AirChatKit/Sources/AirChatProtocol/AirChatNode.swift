@@ -8,6 +8,13 @@ public struct NearbyPeer: Equatable {
     public let rssi: Int?
     public let firstSeenMs: Int64
     public let lastSeenMs: Int64
+    /// deviceId behind `label`, once a link (current or past, this session) has revealed it.
+    ///
+    /// The label is a platform handle - a CoreBluetooth identifier on iOS, a BLE address on
+    /// Android - and is all an advertisement can offer. Until a handshake happens there is no way
+    /// to know who the entry is, which is why the nearby list shows an anonymous short name until
+    /// this is filled in.
+    public let peerIdHex: String?
 
     public init(
         label: String,
@@ -15,7 +22,8 @@ public struct NearbyPeer: Equatable {
         capabilities: Int,
         rssi: Int?,
         firstSeenMs: Int64,
-        lastSeenMs: Int64
+        lastSeenMs: Int64,
+        peerIdHex: String? = nil
     ) {
         self.label = label
         self.protocolVersion = protocolVersion
@@ -23,12 +31,15 @@ public struct NearbyPeer: Equatable {
         self.rssi = rssi
         self.firstSeenMs = firstSeenMs
         self.lastSeenMs = lastSeenMs
+        self.peerIdHex = peerIdHex
     }
 }
 
 /// One live link, as shown in the UI.
 public struct LinkInfo: Equatable {
     public let linkId: String
+    /// Platform handle of the peer, matching `NearbyPeer.label` while the handshake runs.
+    public let peerHandle: String?
     public let peerIdHex: String?
     public let nickname: String?
     public let isCentral: Bool
@@ -40,6 +51,7 @@ public struct LinkInfo: Equatable {
 
     public init(
         linkId: String,
+        peerHandle: String?,
         peerIdHex: String?,
         nickname: String?,
         isCentral: Bool,
@@ -50,6 +62,7 @@ public struct LinkInfo: Equatable {
         peerConfirmedTheCode: Bool
     ) {
         self.linkId = linkId
+        self.peerHandle = peerHandle
         self.peerIdHex = peerIdHex
         self.nickname = nickname
         self.isCentral = isCentral
@@ -91,10 +104,20 @@ public struct NodeState: Equatable {
     public var readyLinkCount: Int { links.filter { $0.ready }.count }
 }
 
+/// Result of a user-initiated connect attempt.
+public enum ConnectResult: Equatable {
+    /// The attempt was started; how it ends shows up in `NodeState.links`.
+    case started
+    case rejected(String)
+}
+
 public enum NodeEvent {
     case messageStored(MessageRecord)
     case messageStatusChanged(msgIdHex: String, status: Int)
     case trustChanged(peerIdHex: String, trustState: Int)
+    /// The peer the user tapped has finished its handshake and still needs the safety code
+    /// compared. Emitted at most once per tap: automatic connections do not interrupt anyone.
+    case verifyRequested(peerIdHex: String)
     case peerCodeConfirmed(peerIdHex: String)
     case notice(String)
     case failure(String)
@@ -122,6 +145,8 @@ public final class AirChatNode: LinkSessionListener {
     private let logger: AirChatLogger
     private let clock: () -> Int64
     private let capabilities: Int
+    private let maxLinks: Int
+    private let pendingConnectMs: Int64
 
     private let queue = DispatchQueue(label: "app.airchat.node")
     private let stateLock = NSLock()
@@ -130,6 +155,19 @@ public final class AirChatNode: LinkSessionListener {
     private var sessions: [String: LinkSession] = [:]
     private var nearby: [String: NearbyPeer] = [:]
     private var peerConfirmedCode: Set<String> = []
+
+    /// Session-scoped label -> deviceId memory.
+    ///
+    /// A handle is all an advertisement, or a link that has not finished its handshake, can offer.
+    /// Remembering the mapping lets a peer that drops off and comes back be shown by nickname
+    /// instead of falling back to the anonymous short name.
+    private var handleToPeerId: [String: String] = [:]
+
+    /// The peer the user tapped and is still waiting on.
+    ///
+    /// Automatic connections must not interrupt anyone with a safety-code dialog, so the prompt is
+    /// only offered for a tap, and only while the tap is fresh.
+    private var pendingConnect: (handle: String, deadlineMs: Int64)?
 
     private var identity: LocalIdentity?
     private var nickname: String = AirChatProtocol.defaultNickname
@@ -165,13 +203,19 @@ public final class AirChatNode: LinkSessionListener {
         transport: Transport,
         logger: AirChatLogger = NoopLogger(),
         clock: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) },
-        capabilities: Int = Capabilities.all
+        capabilities: Int = Capabilities.all,
+        /// Link ceiling; matches the transport's own limit, and is a seam for the cap tests.
+        maxLinks: Int = AirChatProtocol.maxLinks,
+        /// How long a tap stays in flight; a seam so the expiry path is testable in milliseconds.
+        pendingConnectMs: Int64 = AirChatNode.defaultPendingConnectMs
     ) {
         self.store = store
         self.transport = transport
         self.logger = logger
         self.clock = clock
         self.capabilities = capabilities
+        self.maxLinks = maxLinks
+        self.pendingConnectMs = pendingConnectMs
     }
 
     // ---------------------------------------------------------------- lifecycle
@@ -231,6 +275,8 @@ public final class AirChatNode: LinkSessionListener {
             }
             sessions.removeAll()
             nearby.removeAll()
+            handleToPeerId.removeAll()
+            pendingConnect = nil
             publishState()
         }
     }
@@ -245,6 +291,60 @@ public final class AirChatNode: LinkSessionListener {
             try? store.saveIdentity(identity.toRecord(nickname: trimmed))
             publishState()
         }
+    }
+
+    // ---------------------------------------------------------------- connect
+
+    /// Connects to the peer the user tapped in the nearby list, and remembers the tap so the
+    /// safety-code sheet can be offered automatically once that peer's handshake completes.
+    ///
+    /// The cap is checked here as well as in the transport so the user gets a reason instead of a
+    /// tap that appears to do nothing.
+    public func requestConnect(peerHandle: String) -> ConnectResult {
+        queue.sync {
+            guard identity != nil else { return .rejected("身份尚未就绪") }
+            guard sessions.count < maxLinks else {
+                return .rejected("附近人数已满（上限 \(maxLinks)），先断开一个")
+            }
+            // A tap on a peer that is already connected (or connecting) is not a new connection: it
+            // is the user asking for that peer's safety code, which may already be available.
+            let alreadyLinked = sessions.values.contains {
+                !$0.isTerminal && $0.link.peerLabel == peerHandle
+            }
+            if !alreadyLinked {
+                transport.connectTo(peerLabel: peerHandle)
+                logger.log("AirChatNode", "user requested connect to \(peerHandle)")
+            }
+            pendingConnect = (peerHandle, clock() + pendingConnectMs)
+            evaluateVerifyPrompt()
+            return .started
+        }
+    }
+
+    /// Offers the safety-code sheet for the tapped peer, once.
+    ///
+    /// A peer whose code is already trusted is not prompted again, and a tap that never turns into
+    /// a link expires instead of resurfacing later against whoever happens to connect next.
+    private func evaluateVerifyPrompt() {
+        guard let pending = pendingConnect else { return }
+        guard clock() <= pending.deadlineMs else {
+            pendingConnect = nil
+            return
+        }
+        guard
+            let session = sessions.values.first(where: {
+                $0.isReady && $0.link.peerLabel == pending.handle
+            }),
+            let deviceId = session.peer?.deviceId
+        else { return }
+        pendingConnect = nil
+        if (try? store.getPeer(deviceId))?.trustState == TrustState.trusted { return }
+        emitEvent(.verifyRequested(peerIdHex: ByteOps.toHex(deviceId)))
+    }
+
+    /// deviceId this handle is known by: a live link first, the session memory second.
+    private func peerIdForHandle(_ handle: String) -> String? {
+        sessions.values.first { $0.link.peerLabel == handle }?.peerDeviceIdHex ?? handleToPeerId[handle]
     }
 
     // ---------------------------------------------------------------- outbound
@@ -431,7 +531,8 @@ public final class AirChatNode: LinkSessionListener {
                 capabilities: capabilities,
                 rssi: rssi,
                 firstSeenMs: existing?.firstSeenMs ?? now,
-                lastSeenMs: now
+                lastSeenMs: now,
+                peerIdHex: peerIdForHandle(label) ?? existing?.peerIdHex
             )
             publishState()
 
@@ -519,6 +620,7 @@ public final class AirChatNode: LinkSessionListener {
 
         // Protocol 5.4: keep the link whose central deviceId is smaller, drop the other.
         let peerHex = peer.deviceIdHex
+        if let handle = session.link.peerLabel { handleToPeerId[handle] = peerHex }
         let duplicates = sessions.values.filter {
             $0 !== session && !$0.isTerminal && $0.peerDeviceIdHex == peerHex
         }
@@ -526,12 +628,21 @@ public final class AirChatNode: LinkSessionListener {
             let keep = chooseLinkToKeep(session, other)
             let drop = keep === session ? other : session
             logger.log("AirChatNode", "duplicate link with \(peerHex); dropping \(drop.link.linkId)")
+            // Both links of a duplicate pair are the same person (dedupe is keyed by peer
+            // deviceId), so the tap follows whichever one survives.
+            if let handle = drop.link.peerLabel { handleToPeerId[handle] = peerHex }
+            if let pending = pendingConnect, pending.handle == drop.link.peerLabel {
+                pendingConnect = (keep.link.peerLabel ?? pending.handle, pending.deadlineMs)
+            }
             drop.link.close()
             drop.markClosed()
             sessions.removeValue(forKey: drop.link.linkId)
             emitEvent(.notice("检测到重复连接，已保留一条链路"))
         }
         guard session.state != .closed else {
+            // This link lost the dedupe. The survivor already ran this method, so only the prompt
+            // is still owed - deliver it against whoever is left.
+            evaluateVerifyPrompt()
             publishState()
             return
         }
@@ -555,6 +666,9 @@ public final class AirChatNode: LinkSessionListener {
         if peer.supportsSync {
             session.sendSyncRequest()
         }
+        // The handshake that answers the user's tap is the ordinary case: without this the prompt
+        // would only ever appear when a duplicate link happened to lose the dedupe.
+        evaluateVerifyPrompt()
         publishState()
     }
 
@@ -770,6 +884,21 @@ public final class AirChatNode: LinkSessionListener {
         let now = clock()
         // Nearby entries that stopped advertising are pruned here.
         nearby = nearby.filter { now - $0.value.lastSeenMs <= Self.nearbyTtlMs }
+        // Attribute every handle we can: this is what lets the list show one row per person with a
+        // real nickname instead of the same device twice, once by handle and once by deviceId.
+        for (label, peer) in nearby {
+            let known = peerIdForHandle(label)
+            guard peer.peerIdHex != known else { continue }
+            nearby[label] = NearbyPeer(
+                label: peer.label,
+                protocolVersion: peer.protocolVersion,
+                capabilities: peer.capabilities,
+                rssi: peer.rssi,
+                firstSeenMs: peer.firstSeenMs,
+                lastSeenMs: peer.lastSeenMs,
+                peerIdHex: known
+            )
+        }
 
         var links: [LinkInfo] = []
         links.reserveCapacity(sessions.count)
@@ -784,6 +913,7 @@ public final class AirChatNode: LinkSessionListener {
             links.append(
                 LinkInfo(
                     linkId: session.link.linkId,
+                    peerHandle: session.link.peerLabel,
                     peerIdHex: peerHex,
                     nickname: session.peer?.nickname,
                     isCentral: session.link.isCentral,
@@ -829,8 +959,16 @@ public final class AirChatNode: LinkSessionListener {
                 session.ping()
             }
         }
+        if let pending = pendingConnect, now > pending.deadlineMs {
+            pendingConnect = nil
+            let linked = sessions.values.contains { $0.isReady && $0.link.peerLabel == pending.handle }
+            if !linked { emitEvent(.notice("没能连上，请靠近后重试")) }
+        }
         publishState()
     }
 
     private static let nearbyTtlMs: Int64 = 15_000
+
+    /// How long a tap stays "in flight" before it is reported as not connecting.
+    static let defaultPendingConnectMs: Int64 = 20_000
 }

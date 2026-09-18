@@ -23,11 +23,22 @@ data class NearbyPeer(
     val rssi: Int?,
     val firstSeenMs: Long,
     val lastSeenMs: Long,
+    /**
+     * deviceId behind [label], once a link (current or past, this session) has revealed it.
+     *
+     * The label is a platform handle - a BLE address on Android, a CoreBluetooth identifier on
+     * iOS - and is all an advertisement can offer. Until a handshake happens there is no way to
+     * know who the entry is, which is exactly why the nearby list shows an anonymous short name
+     * until [peerIdHex] appears.
+     */
+    val peerIdHex: String? = null,
 )
 
 /** One live link, as shown in the UI. */
 data class LinkInfo(
     val linkId: String,
+    /** Platform handle of the peer, matching [NearbyPeer.label] while the handshake runs. */
+    val peerHandle: String?,
     val peerIdHex: String?,
     val nickname: String?,
     val isCentral: Boolean,
@@ -65,9 +76,23 @@ sealed interface NodeEvent {
     data class MessageStored(val record: MessageRecord) : NodeEvent
     data class MessageStatusChanged(val msgIdHex: String, val status: Int) : NodeEvent
     data class TrustChanged(val peerIdHex: String, val trustState: Int) : NodeEvent
+
+    /**
+     * The peer the user tapped has completed its handshake and still needs the safety code
+     * compared. Emitted at most once per tap: automatic connections do not interrupt anyone.
+     */
+    data class VerifyRequested(val peerIdHex: String) : NodeEvent
     data class PeerCodeConfirmed(val peerIdHex: String) : NodeEvent
     data class Notice(val message: String) : NodeEvent
     data class Failure(val message: String) : NodeEvent
+}
+
+/** Result of a user-initiated connect attempt. */
+sealed interface ConnectResult {
+    /** The attempt was started; how it ends shows up in `NodeState.links`. */
+    object Started : ConnectResult
+
+    data class Rejected(val reason: String) : ConnectResult
 }
 
 /** Result of a send attempt, so the UI can report a precise reason. */
@@ -91,11 +116,34 @@ class AirChatNode(
     private val logger: AirChatLogger = AirChatLogger.NOOP,
     private val clock: () -> Long = System::currentTimeMillis,
     private val capabilities: Int = Capabilities.ALL,
+    /** Link ceiling; matches the transport's own limit, and is a seam for the cap tests. */
+    private val maxLinks: Int = AirChatProtocol.MAX_LINKS,
+    /** How long a tap stays in flight; a seam so the expiry path is testable in milliseconds. */
+    private val pendingConnectMs: Long = PENDING_CONNECT_MS,
 ) {
     private val mutex = Mutex()
     private val sessions = LinkedHashMap<String, LinkSession>()
     private val nearby = LinkedHashMap<String, NearbyPeer>()
     private val peerConfirmedCode = mutableSetOf<String>()
+
+    /**
+     * Session-scoped label -> deviceId memory.
+     *
+     * A handle is all an advertisement, or a link that has not finished its handshake, can offer.
+     * Remembering the mapping lets a peer that drops off and comes back be shown by nickname
+     * instead of falling back to the anonymous short name.
+     */
+    private val handleToPeerId = HashMap<String, String>()
+
+    /**
+     * The peer the user tapped and is still waiting on.
+     *
+     * Automatic connections must not interrupt anyone with a safety-code dialog, so the prompt is
+     * only offered for a tap, and only while the tap is fresh.
+     */
+    private var pendingConnect: PendingConnect? = null
+
+    private data class PendingConnect(val handle: String, val deadlineMs: Long)
 
     private val _state = MutableStateFlow(NodeState.initial("", ""))
     val state: StateFlow<NodeState> = _state.asStateFlow()
@@ -155,6 +203,8 @@ class AirChatNode(
             }
             sessions.clear()
             nearby.clear()
+            handleToPeerId.clear()
+            pendingConnect = null
             publishState()
         }
     }
@@ -171,6 +221,60 @@ class AirChatNode(
             publishState()
         }
     }
+
+    // ---------------------------------------------------------------- connect
+
+    /**
+     * Connects to the peer the user tapped in the nearby list, and remembers the tap so the
+     * safety-code dialog can be offered automatically once that peer's handshake completes.
+     *
+     * The cap is checked here as well as in the transport so the user gets a reason instead of a
+     * tap that appears to do nothing.
+     */
+    suspend fun requestConnect(peerHandle: String): ConnectResult = mutex.withLock {
+        if (identity == null) return@withLock ConnectResult.Rejected("身份尚未就绪")
+        if (sessions.size >= maxLinks) {
+            return@withLock ConnectResult.Rejected("附近人数已满（上限 $maxLinks），先断开一个")
+        }
+        // A tap on a peer that is already connected (or connecting) is not a new connection: it is
+        // the user asking for that peer's safety code, which may already be available.
+        val alreadyLinked = sessions.values.any {
+            !it.isTerminal && it.link.peerLabel == peerHandle
+        }
+        if (!alreadyLinked) {
+            transport.connectTo(peerHandle)
+            logger.log(TAG, "user requested connect to $peerHandle")
+        }
+        pendingConnect = PendingConnect(peerHandle, clock() + pendingConnectMs)
+        evaluateVerifyPrompt()
+        ConnectResult.Started
+    }
+
+    /**
+     * Offers the safety-code dialog for the tapped peer, once.
+     *
+     * A peer whose code is already trusted is not prompted again, and a tap that never turns into
+     * a link expires instead of resurfacing later against whoever happens to connect next.
+     */
+    private suspend fun evaluateVerifyPrompt() {
+        val pending = pendingConnect ?: return
+        if (clock() > pending.deadlineMs) {
+            pendingConnect = null
+            return
+        }
+        val session = sessions.values.firstOrNull {
+            it.isReady && it.link.peerLabel == pending.handle
+        } ?: return
+        val deviceId = session.peer?.deviceId ?: return
+        pendingConnect = null
+        if (store.getPeer(deviceId)?.trustState == TrustState.TRUSTED) return
+        emit(NodeEvent.VerifyRequested(ByteOps.toHex(deviceId)))
+    }
+
+    /** deviceId this handle is known by: a live link first, the session memory second. */
+    private fun peerIdForHandle(handle: String): String? =
+        sessions.values.firstOrNull { it.link.peerLabel == handle }?.peerDeviceIdHex
+            ?: handleToPeerId[handle]
 
     // ---------------------------------------------------------------- outbound
 
@@ -335,6 +439,7 @@ class AirChatNode(
                     rssi = event.rssi,
                     firstSeenMs = existing?.firstSeenMs ?: now,
                     lastSeenMs = now,
+                    peerIdHex = peerIdForHandle(event.peerLabel) ?: existing?.peerIdHex,
                 )
                 publishStateSoon()
             }
@@ -419,6 +524,7 @@ class AirChatNode(
 
             // Protocol 5.4: keep the link whose central deviceId is smaller, drop the other.
             val peerHex = ByteOps.toHex(peer.deviceId)
+            session.link.peerLabel?.let { handleToPeerId[it] = peerHex }
             val duplicates = sessions.values.filter {
                 it !== session && !it.isTerminal && it.peerDeviceIdHex == peerHex
             }
@@ -426,12 +532,22 @@ class AirChatNode(
                 val keep = chooseLinkToKeep(session, other)
                 val drop = if (keep === session) other else session
                 logger.log(TAG, "duplicate link with $peerHex; dropping ${drop.link.linkId}")
+                // Both links of a duplicate pair are the same person (dedupe is keyed by peer
+                // deviceId), so the tap follows whichever one survives.
+                drop.link.peerLabel?.let { handleToPeerId[it] = peerHex }
+                val pendingNow = pendingConnect
+                if (pendingNow != null && pendingNow.handle == drop.link.peerLabel) {
+                    pendingConnect = pendingNow.copy(handle = keep.link.peerLabel ?: pendingNow.handle)
+                }
                 drop.link.close()
                 drop.markClosed()
                 sessions.remove(drop.link.linkId)
                 emit(NodeEvent.Notice("检测到重复连接，已保留一条链路"))
             }
             if (session.state == SessionState.CLOSED) {
+                // This link lost the dedupe. The survivor already ran this method, so only the
+                // prompt is still owed - deliver it against whoever is left.
+                evaluateVerifyPrompt()
                 publishState()
                 return@withLock
             }
@@ -452,6 +568,9 @@ class AirChatNode(
             session.verifiedLocally = store.getPeer(peer.deviceId)?.trustState == TrustState.TRUSTED
 
             if (peer.supportsSync) session.sendSyncRequest()
+            // The handshake that answers the user's tap is the ordinary case: without this the
+            // prompt would only ever appear when a duplicate link happened to lose the dedupe.
+            evaluateVerifyPrompt()
             publishState()
         }
     }
@@ -666,11 +785,17 @@ class AirChatNode(
         _state.value = _state.value.copy(
             deviceIdHex = me?.deviceIdHex ?: "",
             nickname = nicknameInternal,
-            nearby = nearby.values.sortedByDescending { it.lastSeenMs },
+            nearby = nearby.values
+                .map { peer ->
+                    val known = peerIdForHandle(peer.label)
+                    if (peer.peerIdHex == known) peer else peer.copy(peerIdHex = known)
+                }
+                .sortedByDescending { it.lastSeenMs },
             links = sessions.values.map { session ->
                 val peerHex = session.peerDeviceIdHex
                 LinkInfo(
                     linkId = session.link.linkId,
+                    peerHandle = session.link.peerLabel,
                     peerIdHex = peerHex,
                     nickname = session.peer?.nickname,
                     isCentral = session.link.isCentral,
@@ -707,6 +832,14 @@ class AirChatNode(
                     if (!session.isReady) continue
                     if (now - session.lastOutboundAtMs >= AirChatProtocol.PING_INTERVAL_MS) session.ping()
                 }
+                val pending = pendingConnect
+                if (pending != null && now > pending.deadlineMs) {
+                    pendingConnect = null
+                    val linked = sessions.values.any {
+                        it.isReady && it.link.peerLabel == pending.handle
+                    }
+                    if (!linked) emit(NodeEvent.Notice("没能连上，请靠近后重试"))
+                }
                 publishState()
             }
         }
@@ -717,6 +850,9 @@ class AirChatNode(
         const val DEFAULT_NICKNAME = "邻居"
         const val MAINTENANCE_INTERVAL_MS = 5_000L
         const val NEARBY_TTL_MS = 15_000L
+
+        /** How long a tap stays "in flight" before it is reported as not connecting. */
+        const val PENDING_CONNECT_MS = 20_000L
         val EMPTY_DEVICE_ID = ByteArray(AirChatProtocol.DEVICE_ID_BYTES)
     }
 }

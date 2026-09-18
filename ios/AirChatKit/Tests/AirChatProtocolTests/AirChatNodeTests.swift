@@ -42,8 +42,15 @@ final class AirChatNodeTests: XCTestCase {
             nodeB.start()
         }
 
-        func connect(mtu: Int = 185, aIsCentral: Bool = true) {
-            links = FakeBle.connect(transportA, transportB, mtu: mtu, aIsCentral: aIsCentral)
+        func connect(
+            mtu: Int = 185,
+            aIsCentral: Bool = true,
+            labelA: String = "peer-of-a",
+            labelB: String = "peer-of-b"
+        ) {
+            links = FakeBle.connect(
+                transportA, transportB, mtu: mtu, aIsCentral: aIsCentral, labelA: labelA, labelB: labelB
+            )
         }
 
         func shutdown() {
@@ -342,6 +349,236 @@ final class AirChatNodeTests: XCTestCase {
                 return XCTFail("expected a local write to be accepted")
             }
             XCTAssertEqual(MessageStatus.failed, record.status)
+        }
+    }
+
+    // ------------------------------------------- 附近页：点人即连、连上核对
+
+    /// Collects node events for the duration of one test. The node notifies from its own serial
+    /// queue, so the log has to be safe to append from there and read from the test thread.
+    private final class EventLog {
+        private let lock = NSLock()
+        private var events: [NodeEvent] = []
+
+        func append(_ event: NodeEvent) {
+            lock.lock()
+            defer { lock.unlock() }
+            events.append(event)
+        }
+
+        /// deviceIds the node asked the user to verify, in order.
+        var prompts: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return events.compactMap { event in
+                if case .verifyRequested(let peerIdHex) = event { return peerIdHex }
+                return nil
+            }
+        }
+    }
+
+    private func recordEvents(_ node: AirChatNode) -> EventLog {
+        let log = EventLog()
+        node.addEventObserver { log.append($0) }
+        return log
+    }
+
+    /// Seeds an identity into a store so the tests can control which deviceId is smaller, and with
+    /// it which of two duplicate links the dedupe keeps.
+    private func seededStore(largerThan floor: LocalIdentity? = nil) -> (InMemoryChatStore, LocalIdentity) {
+        var identity = LocalIdentity.generate()
+        if let floor {
+            // P-256 key generation is cheap and the predicate holds for roughly half of the draws,
+            // so this terminates almost immediately.
+            while ByteOps.compareUnsigned(identity.deviceId, floor.deviceId) <= 0 {
+                identity = LocalIdentity.generate()
+            }
+        }
+        let store = InMemoryChatStore()
+        try? store.saveIdentity(identity.toRecord(nickname: "test"))
+        return (store, identity)
+    }
+
+    func testATapConnectsThroughTheTransportAndAsksForTheSafetyCodeExactlyOnce() throws {
+        try withHarness { harness in
+            let events = recordEvents(harness.nodeA)
+            harness.transportA.reportSeen(label: "AA:BB:CC:DD:EE:FF")
+            waitUntil("nodeA shows an anonymous nearby entry") {
+                harness.nodeA.state.nearby.first?.label == "AA:BB:CC:DD:EE:FF"
+            }
+
+            XCTAssertEqual(
+                ConnectResult.started,
+                harness.nodeA.requestConnect(peerHandle: "AA:BB:CC:DD:EE:FF")
+            )
+            waitUntil("the tap reached the transport") {
+                harness.transportA.connectRequests == ["AA:BB:CC:DD:EE:FF"]
+            }
+
+            harness.connect(labelA: "AA:BB:CC:DD:EE:FF", labelB: "11:22:33:44:55:66")
+            waitForReady(harness)
+
+            waitUntil("exactly one verify prompt") { events.prompts.count == 1 }
+            XCTAssertEqual(harness.nodeB.deviceIdHex, events.prompts.first)
+            // A prompt is a one-shot offer: a second handshake must not re-open it on its own.
+            Thread.sleep(forTimeInterval: 0.15)
+            XCTAssertEqual(1, events.prompts.count)
+        }
+    }
+
+    func testAPeerWhoseCodeIsAlreadyTrustedIsNeverPromptedAgain() throws {
+        try withHarness { harness in
+            let events = recordEvents(harness.nodeA)
+            harness.connect(labelA: "AA:BB:CC:DD:EE:FF", labelB: "11:22:33:44:55:66")
+            waitForReady(harness)
+
+            let peerHex = harness.nodeB.deviceIdHex
+            harness.nodeA.confirmSafetyCode(peerIdHex: peerHex, accepted: true)
+            waitUntil("the verdict is stored") {
+                harness.nodeA.state.links.first?.trustState == TrustState.trusted
+            }
+
+            // Drop the link and tap the same peer again: the handshake repeats, the prompt must not.
+            harness.links?.0.close()
+            waitUntil("the old link is gone") { harness.nodeA.state.links.isEmpty }
+            harness.transportA.reportSeen(label: "AA:BB:CC:DD:EE:FF")
+            XCTAssertEqual(
+                ConnectResult.started,
+                harness.nodeA.requestConnect(peerHandle: "AA:BB:CC:DD:EE:FF")
+            )
+            harness.connect(labelA: "AA:BB:CC:DD:EE:FF", labelB: "11:22:33:44:55:66")
+            waitForReady(harness)
+
+            Thread.sleep(forTimeInterval: 0.2)
+            XCTAssertTrue(events.prompts.isEmpty, "a trusted peer must not be re-prompted")
+        }
+    }
+
+    func testATapThatNeverConnectsExpiresInsteadOfPromptingLater() throws {
+        let transportA = FakeTransport()
+        let transportB = FakeTransport()
+        // A 50 ms deadline stands in for the 20 s one, which is the only way to exercise the
+        // expiry without a 20 s test.
+        let nodeA = AirChatNode(
+            store: InMemoryChatStore(), transport: transportA, pendingConnectMs: 50
+        )
+        let nodeB = AirChatNode(store: InMemoryChatStore(), transport: transportB)
+        nodeA.start()
+        nodeB.start()
+        defer {
+            nodeA.stop()
+            nodeB.stop()
+        }
+        let events = recordEvents(nodeA)
+
+        transportA.reportSeen(label: "AA:BB:CC:DD:EE:FF")
+        XCTAssertEqual(ConnectResult.started, nodeA.requestConnect(peerHandle: "AA:BB:CC:DD:EE:FF"))
+        Thread.sleep(forTimeInterval: 0.2) // the tap goes stale before anything connects
+
+        FakeBle.connect(
+            transportA, transportB, labelA: "AA:BB:CC:DD:EE:FF", labelB: "11:22:33:44:55:66"
+        )
+        waitUntil("both links are ready") {
+            nodeA.state.readyLinkCount == 1 && nodeB.state.readyLinkCount == 1
+        }
+        Thread.sleep(forTimeInterval: 0.2)
+        XCTAssertTrue(events.prompts.isEmpty, "a stale tap must stay silent")
+    }
+
+    func testATapFollowsTheLinkThatSurvivesLinkDeduplication() throws {
+        // Seeding the identities makes the dedupe survivor deterministic. The survivor is the link
+        // whose *central* has the smaller deviceId, and the test needs that to be the link the user
+        // did not tap - otherwise the prompt would fire before the dedupe and prove nothing.
+        let (storeB, identityB) = seededStore()
+        let (storeA, identityA) = seededStore(largerThan: identityB)
+
+        let transportA = FakeTransport()
+        let transportB = FakeTransport()
+        let nodeA = AirChatNode(store: storeA, transport: transportA)
+        let nodeB = AirChatNode(store: storeB, transport: transportB)
+        nodeA.start()
+        nodeB.start()
+        defer {
+            nodeA.stop()
+            nodeB.stop()
+        }
+        let events = recordEvents(nodeA)
+        XCTAssertEqual(identityA.deviceIdHex, nodeA.deviceIdHex)
+
+        // The user taps the handle of the link *A* would initiate.
+        XCTAssertEqual(ConnectResult.started, nodeA.requestConnect(peerHandle: "A-SEES-B"))
+
+        // Both sides connect at once: A central (the tapped handle) and B central (which leaves A
+        // in the peripheral role, under a different handle). The peer-initiated one completes
+        // first, so the tapped link arrives second and loses the dedupe.
+        FakeBle.connect(
+            transportA,
+            transportB,
+            aIsCentral: false,
+            labelPrefix: "peer",
+            labelA: "A-SEES-B-OTHER",
+            labelB: "B-SEES-A-OTHER"
+        )
+        waitUntil("the peer-initiated link is ready first") {
+            let links = nodeA.state.links
+            return links.count == 1 && links[0].ready && !links[0].isCentral
+        }
+        FakeBle.connect(
+            transportA,
+            transportB,
+            aIsCentral: true,
+            labelPrefix: "tapped",
+            labelA: "A-SEES-B",
+            labelB: "B-SEES-A"
+        )
+
+        waitUntil("the tap still produced a prompt") { events.prompts.count == 1 }
+        waitUntil("one link survives on A") { nodeA.state.links.count == 1 }
+        // The survivor is the handle the user did *not* tap, so the prompt above could only have
+        // come from the tap following the surviving link.
+        XCTAssertFalse(nodeA.state.links[0].isCentral)
+        XCTAssertEqual(identityB.deviceIdHex, events.prompts.first)
+    }
+
+    func testAtTheLinkCapATapIsRefusedWithoutAskingTheTransport() throws {
+        let transportA = FakeTransport()
+        let transportB = FakeTransport()
+        let nodeA = AirChatNode(store: InMemoryChatStore(), transport: transportA, maxLinks: 1)
+        let nodeB = AirChatNode(store: InMemoryChatStore(), transport: transportB)
+        nodeA.start()
+        nodeB.start()
+        defer {
+            nodeA.stop()
+            nodeB.stop()
+        }
+
+        FakeBle.connect(
+            transportA, transportB, labelA: "AA:BB:CC:DD:EE:FF", labelB: "11:22:33:44:55:66"
+        )
+        waitUntil("the only allowed link is ready") { nodeA.state.readyLinkCount == 1 }
+
+        guard case .rejected = nodeA.requestConnect(peerHandle: "77:88:99:AA:BB:CC") else {
+            return XCTFail("the cap must be reported, not silently ignored")
+        }
+        XCTAssertTrue(transportA.connectRequests.isEmpty, "no attempt may start at the cap")
+    }
+
+    func testANearbyEntryIsAttributedToThePeerOnceAHandshakeRevealsIt() throws {
+        try withHarness { harness in
+            harness.transportA.reportSeen(label: "AA:BB:CC:DD:EE:FF")
+            waitUntil("the entry starts out anonymous") {
+                harness.nodeA.state.nearby.first?.peerIdHex == nil
+            }
+
+            harness.connect(labelA: "AA:BB:CC:DD:EE:FF", labelB: "11:22:33:44:55:66")
+            waitForReady(harness)
+
+            // Attribution is what lets the UI show one row per person with a real nickname instead
+            // of listing the same device twice, once by handle and once by deviceId.
+            waitUntil("the entry is attributed") {
+                harness.nodeA.state.nearby.first?.peerIdHex == harness.nodeB.deviceIdHex
+            }
+            XCTAssertEqual("AA:BB:CC:DD:EE:FF", harness.nodeA.state.links.first?.peerHandle)
         }
     }
 

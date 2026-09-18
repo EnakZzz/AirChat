@@ -118,6 +118,13 @@ final class FakeTransport: Transport {
         lastPresence = (protocolVersion, capabilities)
     }
 
+    /// Handles the node asked to connect to, in order, so a tap can be asserted end to end.
+    private(set) var connectRequests: [String] = []
+
+    func connectTo(peerLabel: String) {
+        connectRequests.append(peerLabel)
+    }
+
     func open(_ link: Link) {
         handler?(.linkOpened(link))
     }
@@ -155,11 +162,15 @@ enum FakeBle {
         _ b: FakeTransport,
         mtu: Int = 185,
         aIsCentral: Bool = true,
-        labelPrefix: String = "link"
+        labelPrefix: String = "link",
+        // The platform handle each side sees. Tests that assert nearby-list attribution set these
+        // to the label the owning transport reports through `reportSeen`.
+        labelA: String = "peer-of-a",
+        labelB: String = "peer-of-b"
     ) -> (FakeLink, FakeLink) {
         let stamp = UUID().uuidString.prefix(8)
-        let linkA = FakeLink(linkId: "\(labelPrefix)-a-\(stamp)", isCentral: aIsCentral, mtu: mtu, peerLabel: "peer-of-a")
-        let linkB = FakeLink(linkId: "\(labelPrefix)-b-\(stamp)", isCentral: !aIsCentral, mtu: mtu, peerLabel: "peer-of-b")
+        let linkA = FakeLink(linkId: "\(labelPrefix)-a-\(stamp)", isCentral: aIsCentral, mtu: mtu, peerLabel: labelA)
+        let linkB = FakeLink(linkId: "\(labelPrefix)-b-\(stamp)", isCentral: !aIsCentral, mtu: mtu, peerLabel: labelB)
         linkA.peer = linkB
         linkB.peer = linkA
         linkA.onClosed = { a.closeLink(linkId: linkA.linkId, reason: "disconnected") }

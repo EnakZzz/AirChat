@@ -118,6 +118,13 @@ class FakeTransport : Transport {
         lastPresence = protocolVersion to capabilities
     }
 
+    /** Handles the node asked to connect to, in order, so a tap can be asserted end to end. */
+    val connectRequests = mutableListOf<String>()
+
+    override fun connectTo(peerLabel: String) {
+        connectRequests += peerLabel
+    }
+
     fun open(link: Link) {
         _events.tryEmit(TransportEvent.LinkOpened(link))
     }
@@ -143,10 +150,14 @@ object FakeBle {
         mtu: Int = 185,
         aIsCentral: Boolean = true,
         labelPrefix: String = "link",
+        // The platform handle each side sees. Tests that assert nearby-list attribution set these
+        // to the label the owning transport reports through `reportSeen`.
+        labelA: String = "peer-of-a",
+        labelB: String = "peer-of-b",
     ): Pair<FakeLink, FakeLink> {
         val stamp = System.nanoTime()
-        val linkA = FakeLink("$labelPrefix-a-$stamp", aIsCentral, mtu, "peer-of-a")
-        val linkB = FakeLink("$labelPrefix-b-$stamp", !aIsCentral, mtu, "peer-of-b")
+        val linkA = FakeLink("$labelPrefix-a-$stamp", aIsCentral, mtu, labelA)
+        val linkB = FakeLink("$labelPrefix-b-$stamp", !aIsCentral, mtu, labelB)
         linkA.peer = linkB
         linkB.peer = linkA
         linkA.onClosed = { a.closeLink(linkA.linkId, "disconnected") }

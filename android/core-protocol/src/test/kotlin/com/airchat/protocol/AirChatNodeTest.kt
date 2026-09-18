@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,6 +13,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * End-to-end tests over the fake BLE transport: two (and three) real [AirChatNode] instances
@@ -47,8 +49,13 @@ class AirChatNodeTest {
             nodeB.start()
         }
 
-        fun connect(mtu: Int = 185, aIsCentral: Boolean = true) {
-            links = FakeBle.connect(transportA, transportB, mtu, aIsCentral)
+        fun connect(
+            mtu: Int = 185,
+            aIsCentral: Boolean = true,
+            labelA: String = "peer-of-a",
+            labelB: String = "peer-of-b",
+        ) {
+            links = FakeBle.connect(transportA, transportB, mtu, aIsCentral, labelA = labelA, labelB = labelB)
         }
 
         fun shutdown() {
@@ -324,6 +331,212 @@ class AirChatNodeTest {
         val result = h.nodeA.postChannelMessage("断线后仍可本地记录")
         assertTrue(result is SendResult.Sent)
         assertEquals(MessageStatus.FAILED, (result as SendResult.Sent).record.status)
+    }
+
+    // ------------------------------------------- 附近页：点人即连、连上核对
+
+    /** Collects node events for the duration of one test. */
+    private fun CoroutineScope.recordEvents(node: AirChatNode) =
+        CopyOnWriteArrayList<NodeEvent>().also { received ->
+            launch { node.events.collect { received += it } }
+        }
+
+    private fun List<NodeEvent>.prompts() = filterIsInstance<NodeEvent.VerifyRequested>()
+
+    /**
+     * Seeds an identity into a store so the tests can control which deviceId is smaller, and with
+     * it which of two duplicate links the dedupe keeps.
+     */
+    private suspend fun seededStore(largerThan: LocalIdentity?): Pair<InMemoryChatStore, LocalIdentity> {
+        val identity = generate {
+            largerThan == null || ByteOps.compareUnsigned(it.deviceId, largerThan.deviceId) > 0
+        }
+        val store = InMemoryChatStore()
+        store.saveIdentity(identity.toRecord("test"))
+        return store to identity
+    }
+
+    private fun generate(acceptable: (LocalIdentity) -> Boolean): LocalIdentity {
+        // P-256 key generation is cheap and the predicate is satisfied by roughly half of the
+        // draws, so this terminates almost immediately.
+        while (true) {
+            val candidate = LocalIdentity.generate()
+            if (acceptable(candidate)) return candidate
+        }
+    }
+
+    @Test
+    fun `a tap connects through the transport and asks for the safety code exactly once`() = withHarness { h ->
+        val events = h.scope.recordEvents(h.nodeA)
+        h.transportA.reportSeen("AA:BB:CC:DD:EE:FF")
+        awaitUntil("nodeA shows an anonymous nearby entry") {
+            h.nodeA.state.value.nearby.singleOrNull()?.label == "AA:BB:CC:DD:EE:FF"
+        }
+
+        assertEquals(ConnectResult.Started, h.nodeA.requestConnect("AA:BB:CC:DD:EE:FF"))
+        awaitUntil("the tap reached the transport") {
+            h.transportA.connectRequests == listOf("AA:BB:CC:DD:EE:FF")
+        }
+
+        h.connect(labelA = "AA:BB:CC:DD:EE:FF", labelB = "11:22:33:44:55:66")
+        h.awaitBothReady()
+
+        awaitUntil("exactly one verify prompt") { events.prompts().size == 1 }
+        assertEquals(h.nodeB.deviceIdHex, events.prompts().single().peerIdHex)
+        // A prompt is a one-shot offer: a second handshake must not re-open it on its own.
+        delay(150)
+        assertEquals(1, events.prompts().size)
+    }
+
+    @Test
+    fun `a peer whose code is already trusted is never prompted again`() = withHarness { h ->
+        val events = h.scope.recordEvents(h.nodeA)
+        h.connect(labelA = "AA:BB:CC:DD:EE:FF", labelB = "11:22:33:44:55:66")
+        h.awaitBothReady()
+
+        val peerHex = h.nodeB.deviceIdHex
+        h.nodeA.confirmSafetyCode(peerHex, accepted = true)
+        awaitUntil("the verdict is stored") {
+            h.nodeA.state.value.links.single().trustState == TrustState.TRUSTED
+        }
+
+        // Drop the link and tap the same peer again: the handshake repeats, the prompt must not.
+        h.links!!.first.close()
+        awaitUntil("the old link is gone") { h.nodeA.state.value.links.isEmpty() }
+        h.transportA.reportSeen("AA:BB:CC:DD:EE:FF")
+        assertEquals(ConnectResult.Started, h.nodeA.requestConnect("AA:BB:CC:DD:EE:FF"))
+        h.connect(labelA = "AA:BB:CC:DD:EE:FF", labelB = "11:22:33:44:55:66")
+        h.awaitBothReady()
+
+        delay(200)
+        assertTrue("a trusted peer must not be re-prompted", events.prompts().isEmpty())
+    }
+
+    @Test
+    fun `a tap that never connects expires instead of prompting later`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val transportA = FakeTransport()
+            val transportB = FakeTransport()
+            val storeB = InMemoryChatStore()
+            // A 50 ms deadline stands in for the 20 s one, which is the only way to exercise the
+            // expiry without a 20 s test.
+            val nodeA = AirChatNode(InMemoryChatStore(), transportA, scope, pendingConnectMs = 50)
+            val nodeB = AirChatNode(storeB, transportB, scope)
+            val events = scope.recordEvents(nodeA)
+            nodeA.start()
+            nodeB.start()
+
+            transportA.reportSeen("AA:BB:CC:DD:EE:FF")
+            assertEquals(ConnectResult.Started, nodeA.requestConnect("AA:BB:CC:DD:EE:FF"))
+            delay(200) // the tap goes stale before anything connects
+
+            FakeBle.connect(transportA, transportB, labelA = "AA:BB:CC:DD:EE:FF", labelB = "11:22:33:44:55:66")
+            awaitUntil("both links are ready") {
+                nodeA.state.value.readyLinkCount == 1 && nodeB.state.value.readyLinkCount == 1
+            }
+            delay(200)
+            assertTrue("a stale tap must stay silent", events.prompts().isEmpty())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a tap follows the link that survives link deduplication`() = runBlocking {
+        // Seeding the identities makes the dedupe survivor deterministic. The survivor is the
+        // link whose *central* has the smaller deviceId, and the test needs that to be the link
+        // the user did not tap - otherwise the prompt would fire before the dedupe and prove
+        // nothing.
+        val (storeB, identityB) = seededStore(null)
+        val (storeA, identityA) = seededStore(identityB)
+
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val transportA = FakeTransport()
+            val transportB = FakeTransport()
+            val nodeA = AirChatNode(storeA, transportA, scope)
+            val nodeB = AirChatNode(storeB, transportB, scope)
+            val events = scope.recordEvents(nodeA)
+            nodeA.start()
+            nodeB.start()
+            assertEquals(identityA.deviceIdHex, nodeA.deviceIdHex)
+
+            // The user taps the handle of the link *A* would initiate.
+            assertEquals(ConnectResult.Started, nodeA.requestConnect("A-SEES-B"))
+
+            // Both sides connect at once: A central (the tapped handle) and B central (which
+            // leaves A in the peripheral role, under a different handle). The peer-initiated one
+            // completes first, so the tapped link arrives second and loses the dedupe.
+            FakeBle.connect(
+                transportA, transportB,
+                aIsCentral = false,
+                labelPrefix = "peer",
+                labelA = "A-SEES-B-OTHER",
+                labelB = "B-SEES-A-OTHER",
+            )
+            awaitUntil("the peer-initiated link is ready first") {
+                val links = nodeA.state.value.links
+                links.size == 1 && links.single().ready && !links.single().isCentral
+            }
+            FakeBle.connect(
+                transportA, transportB,
+                aIsCentral = true,
+                labelPrefix = "tapped",
+                labelA = "A-SEES-B",
+                labelB = "B-SEES-A",
+            )
+
+            awaitUntil("the tap still produced a prompt") { events.prompts().size == 1 }
+            awaitUntil("one link survives on A") { nodeA.state.value.links.size == 1 }
+            // The survivor is the handle the user did *not* tap, so the prompt above could only
+            // have come from the tap following the surviving link.
+            assertFalse(nodeA.state.value.links.single().isCentral)
+            assertEquals(identityB.deviceIdHex, events.prompts().single().peerIdHex)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `at the link cap a tap is refused without asking the transport`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val transportA = FakeTransport()
+            val transportB = FakeTransport()
+            val nodeA = AirChatNode(InMemoryChatStore(), transportA, scope, maxLinks = 1)
+            val nodeB = AirChatNode(InMemoryChatStore(), transportB, scope)
+            nodeA.start()
+            nodeB.start()
+
+            FakeBle.connect(transportA, transportB, labelA = "AA:BB:CC:DD:EE:FF", labelB = "11:22:33:44:55:66")
+            awaitUntil("the only allowed link is ready") { nodeA.state.value.readyLinkCount == 1 }
+
+            val refused = nodeA.requestConnect("77:88:99:AA:BB:CC")
+            assertTrue("the cap must be reported, not silently ignored", refused is ConnectResult.Rejected)
+            assertTrue("no attempt may start at the cap", transportA.connectRequests.isEmpty())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a nearby entry is attributed to the peer once a handshake reveals it`() = withHarness { h ->
+        h.transportA.reportSeen("AA:BB:CC:DD:EE:FF")
+        awaitUntil("the entry starts out anonymous") {
+            val entry = h.nodeA.state.value.nearby.singleOrNull()
+            entry != null && entry.peerIdHex == null
+        }
+
+        h.connect(labelA = "AA:BB:CC:DD:EE:FF", labelB = "11:22:33:44:55:66")
+        h.awaitBothReady()
+
+        // Attribution is what lets the UI show one row per person with a real nickname instead of
+        // listing the same device twice, once by handle and once by deviceId.
+        awaitUntil("the entry is attributed") {
+            h.nodeA.state.value.nearby.single().peerIdHex == h.nodeB.deviceIdHex
+        }
+        assertEquals("AA:BB:CC:DD:EE:FF", h.nodeA.state.value.links.single().peerHandle)
     }
 
     @Test

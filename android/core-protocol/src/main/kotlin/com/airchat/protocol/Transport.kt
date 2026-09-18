@@ -77,4 +77,18 @@ interface Transport {
 
     /** Refreshes the presence block carried in the advertising packet. */
     fun updatePresence(protocolVersion: Int, capabilities: Int)
+
+    /**
+     * Connection explicitly asked for by the user, for the peer advertising under [peerLabel].
+     *
+     * Bypasses the connection-direction policy (protocol section 5.3) because the user outranks
+     * the ticket comparison, but not the link cap or the reconnect backoff: an attempt that the
+     * radio refuses is simply never made. Outcomes are reported through state rather than a
+     * return value - a link for that peer appearing (or not) is the only truthful signal, and
+     * asking the BLE handler thread to answer synchronously would block a caller for no gain.
+     *
+     * Duplicate links from a simultaneous tap on both sides are resolved by the post-handshake
+     * dedupe in section 5.4, exactly as with automatic connections.
+     */
+    fun connectTo(peerLabel: String)
 }

@@ -61,6 +61,9 @@ public final class BleTransport: NSObject, Transport {
 
     private var seen: [String: SeenPeer] = [:]
     private var backoffUntil: [String: Int64] = [:]
+    /// Peripherals seen while scanning, kept so a tap can connect without waiting for the next
+    /// advertisement to arrive with a fresh CBPeripheral object.
+    private var discovered: [String: CBPeripheral] = [:]
 
     // Server-side characteristics are created once and reused across centrals.
     private var service: CBMutableService?
@@ -126,6 +129,7 @@ public final class BleTransport: NSObject, Transport {
             linksByKey.removeAll()
             connecting.removeAll()
             pendingPeripheral.removeAll()
+            discovered.removeAll()
             if let peripheralManager, peripheralManager.isAdvertising {
                 peripheralManager.stopAdvertising()
             }
@@ -255,6 +259,8 @@ public final class BleTransport: NSObject, Transport {
         let peerTicket = presence?.ticket ?? (abs(key.hashValue) % 65536)
 
         let now = clock()
+        // Retained for `connectTo`: a tap must not have to wait for the next advertisement.
+        discovered[key] = peripheral
         if var entry = seen[key] {
             entry.lastSeenMs = now
             entry.rssi = rssi
@@ -304,11 +310,52 @@ public final class BleTransport: NSObject, Transport {
         guard peerNeverCame else { return }
         _ = peerTicket
 
-        guard let centralManager, centralManager.state == .poweredOn else { return }
+        beginConnect(peripheral, identifier: identifier, reason: "our ticket=\(ticket), theirs=\(peerTicket)")
+    }
 
+    /// Connection the user asked for by tapping a nearby row.
+    ///
+    /// Deliberately skips the direction policy (protocol section 5.3) - the user outranks a ticket
+    /// comparison - while still honouring the link cap and the reconnect backoff. A simultaneous
+    /// tap on both sides produces two links, which the post-handshake dedupe in section 5.4 keeps
+    /// to one exactly as it does for automatic connections.
+    public func connectTo(peerLabel: String) {
+        queue.sync {
+            guard running else { return }
+            guard
+                linksByKey[centralKey(peerLabel)] == nil,
+                linksByKey[peripheralKey(peerLabel)] == nil,
+                !connecting.contains(peerLabel)
+            else {
+                logger.log("BleTransport", "explicit connect to \(peerLabel) skipped: already linked")
+                return
+            }
+            guard links.count + connecting.count < AirChatProtocol.maxLinks else {
+                logger.log("BleTransport", "explicit connect to \(peerLabel) refused: at the link cap")
+                return
+            }
+            if let until = backoffUntil[peerLabel], clock() < until {
+                logger.log("BleTransport", "explicit connect to \(peerLabel) refused: backing off")
+                return
+            }
+            guard let peripheral = discovered[peerLabel] else {
+                logger.log("BleTransport", "explicit connect to \(peerLabel) refused: not seen scanning")
+                return
+            }
+            beginConnect(peripheral, identifier: peerLabel, reason: "user requested")
+        }
+    }
+
+    /// Starts one connection attempt and records it.
+    ///
+    /// Shared by the direction policy and by the user-initiated path so both get identical
+    /// bookkeeping: the in-flight set, the peripheral needed to close a connection that never
+    /// completes, and the role-scoped link keys the delegate callbacks look up.
+    private func beginConnect(_ peripheral: CBPeripheral, identifier: String, reason: String) {
+        guard let centralManager, centralManager.state == .poweredOn else { return }
         connecting.insert(identifier)
         pendingPeripheral[identifier] = peripheral
-        logger.log("BleTransport", "connecting to \(identifier) (our ticket=\(ticket), theirs=\(peerTicket))")
+        logger.log("BleTransport", "connecting to \(identifier) (\(reason))")
         centralManager.connect(peripheral, options: nil)
     }
 

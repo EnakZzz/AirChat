@@ -156,6 +156,39 @@ class BleTransport(
         }
     }
 
+    /**
+     * Connection the user asked for by tapping a nearby row.
+     *
+     * Deliberately skips the direction policy (protocol section 5.3) - the user outranks a ticket
+     * comparison - while still honouring the link cap and the reconnect backoff. A simultaneous
+     * tap on both sides produces two links, which the post-handshake dedupe in section 5.4 keeps
+     * to one exactly as it does for automatic connections.
+     */
+    override fun connectTo(peerLabel: String) {
+        onHandler {
+            if (!running) return@onHandler
+            if (linksByAddress.containsKey(peerLabel) || connecting.contains(peerLabel)) {
+                logger.log(TAG, "explicit connect to $peerLabel skipped: already linked or connecting")
+                return@onHandler
+            }
+            if (links.size + connecting.size >= AirChatProtocol.MAX_LINKS) {
+                logger.log(TAG, "explicit connect to $peerLabel refused: at the link cap")
+                return@onHandler
+            }
+            val now = SystemClock.elapsedRealtime()
+            if (now < (backoffUntil[peerLabel] ?: 0L)) {
+                logger.log(TAG, "explicit connect to $peerLabel refused: backing off")
+                return@onHandler
+            }
+            val device = runCatching { adapter?.getRemoteDevice(peerLabel) }.getOrNull()
+            if (device == null) {
+                logger.log(TAG, "explicit connect to $peerLabel refused: address not resolvable")
+                return@onHandler
+            }
+            beginConnect(device, peerLabel, reason = "user requested")
+        }
+    }
+
     // ------------------------------------------------------------ diagnostics
 
     /** Returns a status event when the radio cannot be used, or null when it is ready. */
@@ -393,6 +426,17 @@ class BleTransport(
             now - firstSeen >= AirChatProtocol.SCAN_RETRY_AFTER_MS
         if (!weShouldInitiate) return
 
+        beginConnect(device, address, reason = "our ticket=$ticket, theirs=$peerTicket")
+    }
+
+    /**
+     * Starts one GATT connection attempt and records it.
+     *
+     * Shared by the direction policy and by the user-initiated path so both get identical
+     * bookkeeping: the in-flight set that stops duplicate attempts, the handle needed to close a
+     * connection that never completes, and the backoff after a refused attempt.
+     */
+    private fun beginConnect(device: BluetoothDevice, address: String, reason: String) {
         connecting.add(address)
         val gatt = try {
             device.connectGatt(appContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
@@ -402,11 +446,11 @@ class BleTransport(
         }
         if (gatt == null) {
             connecting.remove(address)
-            backoffUntil[address] = now + AirChatProtocol.RECONNECT_BACKOFF_MS
+            backoffUntil[address] = SystemClock.elapsedRealtime() + AirChatProtocol.RECONNECT_BACKOFF_MS
             return
         }
         pendingGatt[address] = gatt
-        logger.log(TAG, "connecting to $address (our ticket=$ticket, theirs=$peerTicket)")
+        logger.log(TAG, "connecting to $address ($reason)")
     }
 
     // ------------------------------------------------------- GATT server side
