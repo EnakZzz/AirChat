@@ -98,6 +98,10 @@ class AirChatContainer(context: Context) {
      */
     fun runSelfTest(spec: String) {
         logger.log(TAG, "selftest spec received: $spec")
+        // The harness drives the app the way a user does, and a user has to ask for a scan before
+        // anybody is discoverable. The window is longer than a person needs so discovery cannot
+        // expire halfway through a 90 s run.
+        node.startScan(DEBUG_SCAN_WINDOW_MS)
         scope.launch {
             val ready = withTimeoutOrNull(SELF_TEST_TIMEOUT_MS) {
                 node.state.first { it.readyLinkCount > 0 }
@@ -134,6 +138,7 @@ class AirChatContainer(context: Context) {
      * makes, so this deliberately does not confirm anything on the user's behalf.
      */
     fun connectFirstPeer() {
+        node.startScan(DEBUG_SCAN_WINDOW_MS)
         scope.launch {
             val peer = withTimeoutOrNull(SELF_TEST_TIMEOUT_MS) {
                 node.state.first { it.nearby.isNotEmpty() }.nearby.first()
@@ -150,6 +155,9 @@ class AirChatContainer(context: Context) {
         const val TAG = "SelfTest"
         const val SEPARATOR = ","
         const val SELF_TEST_TIMEOUT_MS = 45_000L
+
+        /** Debug hooks keep looking for as long as a harness run may last. */
+        const val DEBUG_SCAN_WINDOW_MS = 300_000L
     }
 
     /**

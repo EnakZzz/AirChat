@@ -543,6 +543,39 @@ final class AirChatNodeTests: XCTestCase {
         XCTAssertEqual(identityB.deviceIdHex, events.prompts.first)
     }
 
+    func testScanningIsABoundedUserActionRatherThanADefault() throws {
+        let transport = FakeTransport()
+        // A 50 ms window stands in for the 30 s one.
+        let node = AirChatNode(store: InMemoryChatStore(), transport: transport, scanWindowMs: 50)
+        node.start()
+        defer { node.stop() }
+
+        // Starting the node must not start looking: that is the user's decision, and it is the part
+        // that costs battery.
+        XCTAssertEqual(0, transport.scanStarts)
+        XCTAssertFalse(node.state.scanning)
+
+        node.startScan()
+        waitUntil("the scan window is open") { transport.scanStarts == 1 && node.state.scanning }
+        waitUntil("the window closes by itself") { transport.scanStops == 1 && !node.state.scanning }
+    }
+
+    func testEndingAScanLeavesEstablishedLinksAlone() throws {
+        try withHarness { harness in
+            harness.connect()
+            waitForReady(harness)
+
+            harness.nodeA.startScan()
+            waitUntil("nodeA is scanning") { harness.nodeA.state.scanning }
+            harness.nodeA.stopScan()
+            waitUntil("nodeA stopped scanning") { !harness.nodeA.state.scanning }
+
+            // Scanning is about finding people, not about being connected to them.
+            Thread.sleep(forTimeInterval: 0.1)
+            XCTAssertEqual(1, harness.nodeA.state.readyLinkCount)
+        }
+    }
+
     func testTappingAPeerThatIsAlreadyLinkedDoesNotStartASecondConnection() throws {
         try withHarness { harness in
             // The tap names the handle we scanned; the link reports a different handle for the same

@@ -81,6 +81,8 @@ public struct NodeState: Equatable {
     public var nickname: String
     public var nearby: [NearbyPeer]
     public var links: [LinkInfo]
+    /// True while a scan window is running; scanning is a user action, not a default.
+    public var scanning: Bool
 
     public init(
         status: ChatStatus = .stopped,
@@ -88,7 +90,8 @@ public struct NodeState: Equatable {
         deviceIdHex: String = "",
         nickname: String = "",
         nearby: [NearbyPeer] = [],
-        links: [LinkInfo] = []
+        links: [LinkInfo] = [],
+        scanning: Bool = false
     ) {
         self.status = status
         self.statusMessage = statusMessage
@@ -96,6 +99,7 @@ public struct NodeState: Equatable {
         self.nickname = nickname
         self.nearby = nearby
         self.links = links
+        self.scanning = scanning
     }
 
     public static let empty = NodeState()
@@ -172,7 +176,11 @@ public final class AirChatNode: LinkSessionListener {
     private var identity: LocalIdentity?
     private var nickname: String = AirChatProtocol.defaultNickname
     private var maintenanceTimer: DispatchSourceTimer?
+    private var scanTimer: DispatchSourceTimer?
     private var running = false
+
+    /// True between `startScan()` and the end of its window; published as `NodeState.scanning`.
+    private var scanning = false
 
     /// Latest state snapshot. Thread-safe.
     public var state: NodeState {
@@ -208,7 +216,9 @@ public final class AirChatNode: LinkSessionListener {
         maxLinks: Int = AirChatProtocol.maxLinks,
         /// How long a tap stays in flight before it is reported as not connecting. A seam, so the
         /// expiry path is testable in milliseconds rather than in 20 seconds.
-        pendingConnectMs: Int64 = 20_000
+        pendingConnectMs: Int64 = 20_000,
+        /// How long one scan runs before stopping itself; a seam so the window is testable.
+        scanWindowMs: Int64 = AirChatNode.defaultScanWindowMs
     ) {
         self.store = store
         self.transport = transport
@@ -263,12 +273,52 @@ public final class AirChatNode: LinkSessionListener {
         }
     }
 
+    /// Looks for nearby peers for `scanWindowMs`, then stops by itself.
+    ///
+    /// Scanning is the user's action: it is the part that costs battery, and a device that never
+    /// stops looking is what this replaced. Advertising is unaffected, so peers that *do* scan can
+    /// still find us, and links that already exist are untouched by the window ending.
+    public func startScan(durationMs: Int64? = nil) {
+        queue.sync {
+            guard running else { return }
+            scanTimer?.cancel()
+            scanning = true
+            transport.startScan()
+            let window = durationMs ?? scanWindowMs
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + .milliseconds(Int(window)))
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                self.transport.stopScan()
+                self.scanning = false
+                self.publishState()
+            }
+            timer.resume()
+            scanTimer = timer
+            publishState()
+        }
+    }
+
+    /// Ends the scan window early.
+    public func stopScan() {
+        queue.sync {
+            scanTimer?.cancel()
+            scanTimer = nil
+            transport.stopScan()
+            scanning = false
+            publishState()
+        }
+    }
+
     public func stop() {
         queue.sync {
             guard running else { return }
             running = false
             maintenanceTimer?.cancel()
             maintenanceTimer = nil
+            scanTimer?.cancel()
+            scanTimer = nil
+            scanning = false
             transport.stop()
             for session in sessions.values {
                 session.link.close()
@@ -990,6 +1040,7 @@ public final class AirChatNode: LinkSessionListener {
         var next = state
         next.deviceIdHex = identity?.deviceIdHex ?? ""
         next.nickname = nickname
+        next.scanning = scanning
         next.nearby = nearby.values.sorted { $0.lastSeenMs > $1.lastSeenMs }
         next.links = links
         setState(next)
@@ -1029,4 +1080,7 @@ public final class AirChatNode: LinkSessionListener {
     }
 
     private static let nearbyTtlMs: Int64 = 15_000
+
+    /// One scan window: long enough to see a phone come into range, short enough to be idle.
+    static let defaultScanWindowMs: Int64 = 30_000
 }

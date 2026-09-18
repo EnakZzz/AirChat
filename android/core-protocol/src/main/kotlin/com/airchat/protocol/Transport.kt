@@ -75,6 +75,18 @@ interface Transport {
 
     suspend fun stop()
 
+    /**
+     * Starts looking for nearby peers.
+     *
+     * Separate from [start] on purpose: advertising and the GATT server are always on once the node
+     * runs, so a peer that scans can always find this device, while *looking* is what costs battery
+     * and is therefore something the user asks for.
+     */
+    fun startScan()
+
+    /** Stops looking; advertising and established links are untouched. */
+    fun stopScan()
+
     /** Refreshes the presence block carried in the advertising packet. */
     fun updatePresence(protocolVersion: Int, capabilities: Int)
 

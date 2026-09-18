@@ -47,11 +47,16 @@ final class AppContainer {
         //   devicectl ... -e '{"AIRCHAT_SELFTEST":"channel:hi,private:secret"}'
         // Debug only, so a release build has no way to be told to send anything.
         if let spec = ProcessInfo.processInfo.environment["AIRCHAT_SELFTEST"], !spec.isEmpty {
+            // The harness drives the app the way a user does, and a user has to ask for a scan
+            // before anybody is discoverable. The window is longer than a person needs so discovery
+            // cannot expire halfway through a 90 s run.
+            node.startScan(durationMs: 300_000)
             runSelfTest(spec)
         }
         // Taps the first person that shows up, so the harness can drive the same path a user does
         // instead of only the messaging path.
         if ProcessInfo.processInfo.environment["AIRCHAT_CONNECT_FIRST"] == "1" {
+            node.startScan(durationMs: 300_000)
             connectFirstPeer()
         }
         #endif

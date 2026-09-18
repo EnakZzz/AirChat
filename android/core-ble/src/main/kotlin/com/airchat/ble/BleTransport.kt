@@ -94,6 +94,9 @@ class BleTransport(
     /** Addresses with a connect attempt in flight. */
     private val connecting = HashSet<String>()
 
+    /** True while the user (or a debug hook) has asked for scanning; see [startScan]. */
+    private var scanRequested = false
+
     /** GATT objects for in-flight connect attempts, kept so failures can be cleaned up. */
     private val pendingGatt = HashMap<String, BluetoothGatt>()
 
@@ -120,7 +123,8 @@ class BleTransport(
             logger.log(TAG, "start: adapter ready (ticket=$ticket), opening GATT server and radio")
             openGattServer()
             startAdvertising()
-            startScanning()
+            // Scanning is deliberately not started here: it is the user's action (see startScan).
+            // Advertising and the server stay up so a peer that does scan can still find us.
         }
     }
 
@@ -128,6 +132,7 @@ class BleTransport(
         onHandler {
             if (!running) return@onHandler
             running = false
+            scanRequested = false
             stopScanning()
             stopAdvertising()
             closeGattServer()
@@ -152,6 +157,24 @@ class BleTransport(
             if (advertised) {
                 stopAdvertising()
                 startAdvertising()
+            }
+        }
+    }
+
+    override fun startScan() {
+        onHandler {
+            if (!running) return@onHandler
+            scanRequested = true
+            startScanning()
+        }
+    }
+
+    override fun stopScan() {
+        onHandler {
+            scanRequested = false
+            stopScanning()
+            if (running) {
+                emit(TransportEvent.Status(ChatStatus.IDLE, "未扫描，点「扫描」开始寻找附近的人"))
             }
         }
     }
@@ -745,7 +768,9 @@ class BleTransport(
         if (links.size >= AirChatProtocol.MAX_LINKS) {
             stopScanning()
             emit(TransportEvent.Status(ChatStatus.NEARBY_FULL, "附近人数已满（上限 ${AirChatProtocol.MAX_LINKS}）"))
-        } else {
+        } else if (scanRequested) {
+            // Only resume what the user asked for: a link coming and going must not silently turn
+            // scanning back on after the scan window has ended.
             startScanning()
         }
     }

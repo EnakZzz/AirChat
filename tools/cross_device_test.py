@@ -249,8 +249,9 @@ def diagnose(ios: dict | None, android: dict | None) -> list[str]:
     if ios and android:
         if ios_nearby == 0 and android_nearby == 0:
             hints.append(
-                "Neither side sees any advertisement. Keep BOTH apps in the foreground: iOS only "
-                "advertises its service UUID where other devices can match it while frontmost."
+                "Neither side sees any advertisement. Keep BOTH apps in the foreground and press "
+                "「扫描」 on at least one of them: scanning is a user action, and iOS only advertises "
+                "its service UUID where other devices can match it while frontmost."
             )
         elif android_nearby == 0:
             hints.append(
@@ -431,8 +432,12 @@ def main() -> int:
         failures.append("Android produced no heartbeat")
 
     if not failures:
-        if ios_state.get("nearby", 0) < 1 or android_state.get("nearby", 0) < 1:
-            failures.append("mutual discovery failed (a side reported nearby=0)")
+        # A ready link is proof that discovery happened: entries age out of the nearby list after
+        # 15 s and a scan window is bounded, so a slow run can legitimately end with nearby=0.
+        ios_discovered = ios_state.get("nearby", 0) >= 1 or ready_state(ios_state) is not None
+        android_discovered = android_state.get("nearby", 0) >= 1 or ready_state(android_state) is not None
+        if not ios_discovered or not android_discovered:
+            failures.append("mutual discovery failed (a side saw nobody and had no link)")
         ios_link = ready_state(ios_state)
         android_link = ready_state(android_state)
         if ios_link is None or android_link is None:

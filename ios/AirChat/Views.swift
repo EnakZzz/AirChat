@@ -23,9 +23,13 @@ struct NearbyView: View {
 
             if model.nearby.isEmpty {
                 Section {
-                    Text("还没有发现附近的人。请确认对方也打开了 AirChat，并且两台设备距离在 10–50 米内。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        model.nodeState.scanning
+                            ? "还没有发现附近的人。请确认对方也打开了 AirChat，并且两台设备距离在 10–50 米内。"
+                            : "还没有扫描。点右上角「扫描」寻找附近的人。"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 }
             } else {
                 Section("附近（\(model.nearby.count)）") {
@@ -45,7 +49,15 @@ struct NearbyView: View {
                 }
             }
         }
-        .refreshable { model.requestChannelSync() }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                // Looking for people is the one thing here that costs battery, so it is a button
+                // rather than something the app does to you indefinitely.
+                Button(model.nodeState.scanning ? "停止" : "扫描") {
+                    if model.nodeState.scanning { model.stopScan() } else { model.startScan() }
+                }
+            }
+        }
     }
 }
 
@@ -139,11 +151,15 @@ private struct StatusCard: View {
         case .bluetoothUnavailable: return "蓝牙未开启"
         case .failed: return "蓝牙出错"
         case .stopped: return "已停止"
+        case .idle: return "未扫描"
         }
     }
 
     private var detail: String {
-        state.statusMessage.isEmpty ? "正在广播并扫描 AirChat 服务" : state.statusMessage
+        if state.status == .idle {
+            return "广播中，别人仍能发现你；点右上角「扫描」开始寻找附近的人"
+        }
+        return state.statusMessage.isEmpty ? "正在广播并扫描 AirChat 服务" : state.statusMessage
     }
 }
 

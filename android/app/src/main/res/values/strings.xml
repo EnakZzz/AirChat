@@ -17,7 +17,11 @@
     <string name="bluetooth_off_body">AirChat 完全依赖蓝牙点对点通信，没有服务器中转。请打开蓝牙后继续。</string>
     <string name="bluetooth_off_action">打开蓝牙</string>
 
+    <string name="nearby_start_scan">扫描</string>
+    <string name="nearby_stop_scan">停止</string>
     <string name="nearby_rescan">重新扫描</string>
+    <string name="status_idle">未扫描</string>
+    <string name="nearby_not_scanned">还没有扫描。点右上角「扫描」寻找附近的人。</string>
     <string name="nearby_section">附近（%1$d）</string>
     <string name="nearby_empty">还没有发现附近的人。请确认对方也打开了 AirChat，并且两台设备距离在 10–50 米内。</string>
     <string name="nearby_signal">信号 %1$s</string>

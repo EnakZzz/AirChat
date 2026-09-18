@@ -119,6 +119,9 @@ enum class TypingScope(val code: Int) {
  */
 enum class ChatStatus {
     STOPPED,
+
+    /** Radio up and advertising, but not looking for anyone: scanning is a user action. */
+    IDLE,
     BLUETOOTH_UNAVAILABLE,
     PERMISSION_MISSING,
     SCANNING,

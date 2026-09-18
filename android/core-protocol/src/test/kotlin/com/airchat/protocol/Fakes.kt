@@ -158,6 +158,20 @@ class FakeTransport : Transport {
     /** Handles the node asked to connect to, in order, so a tap can be asserted end to end. */
     val connectRequests = mutableListOf<String>()
 
+    /** Scan windows the node opened and closed, so "scanning is a user action" is assertable. */
+    var scanStarts = 0
+        private set
+    var scanStops = 0
+        private set
+
+    override fun startScan() {
+        scanStarts++
+    }
+
+    override fun stopScan() {
+        scanStops++
+    }
+
     override fun connectTo(peerLabel: String) {
         connectRequests += peerLabel
     }

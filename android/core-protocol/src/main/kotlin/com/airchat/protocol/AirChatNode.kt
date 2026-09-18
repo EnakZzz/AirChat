@@ -57,6 +57,8 @@ data class NodeState(
     val nickname: String,
     val nearby: List<NearbyPeer>,
     val links: List<LinkInfo>,
+    /** True while a scan window is running; scanning is a user action, not a default. */
+    val scanning: Boolean = false,
 ) {
     val linkCount: Int get() = links.size
     val readyLinkCount: Int get() = links.count { it.ready }
@@ -121,6 +123,8 @@ class AirChatNode(
     private val maxLinks: Int = AirChatProtocol.MAX_LINKS,
     /** How long a tap stays in flight; a seam so the expiry path is testable in milliseconds. */
     private val pendingConnectMs: Long = PENDING_CONNECT_MS,
+    /** How long one scan runs before stopping itself; a seam so the window is testable. */
+    private val scanWindowMs: Long = SCAN_WINDOW_MS,
 ) {
     private val mutex = Mutex()
     private val sessions = LinkedHashMap<String, LinkSession>()
@@ -156,6 +160,10 @@ class AirChatNode(
     private var nicknameInternal: String = DEFAULT_NICKNAME
     private var collectorJob: Job? = null
     private var maintenanceJob: Job? = null
+    private var scanJob: Job? = null
+
+    /** True between [startScan] and the end of its window; published as `NodeState.scanning`. */
+    private var scanning = false
 
     val deviceIdHex: String get() = identity?.deviceIdHex ?: ""
 
@@ -198,11 +206,43 @@ class AirChatNode(
         transport.start()
     }
 
+    /**
+     * Looks for nearby peers for [scanWindowMs], then stops by itself.
+     *
+     * Scanning is the user's action: it is the part that costs battery, and a device that never
+     * stops looking is what this replaced. Advertising is unaffected, so peers that *do* scan can
+     * still find us, and links that already exist are untouched by the window ending.
+     */
+    fun startScan(durationMs: Long = scanWindowMs) {
+        scanJob?.cancel()
+        scanJob = scope.launch {
+            scanning = true
+            transport.startScan()
+            publishStateSoon()
+            delay(durationMs)
+            transport.stopScan()
+            scanning = false
+            publishStateSoon()
+        }
+    }
+
+    /** Ends the scan window early. */
+    fun stopScan() {
+        scanJob?.cancel()
+        scanJob = null
+        transport.stopScan()
+        scanning = false
+        publishStateSoon()
+    }
+
     suspend fun stop() {
         collectorJob?.cancel()
         maintenanceJob?.cancel()
+        scanJob?.cancel()
         collectorJob = null
         maintenanceJob = null
+        scanJob = null
+        scanning = false
         runCatching { transport.stop() }
         mutex.withLock {
             for (session in sessions.values) {
@@ -854,6 +894,7 @@ class AirChatNode(
         _state.value = _state.value.copy(
             deviceIdHex = me?.deviceIdHex ?: "",
             nickname = nicknameInternal,
+            scanning = scanning,
             nearby = nearby.values.sortedByDescending { it.lastSeenMs },
             links = sessions.values.map { session ->
                 val peerHex = session.peerDeviceIdHex
@@ -917,6 +958,9 @@ class AirChatNode(
 
         /** How long a tap stays "in flight" before it is reported as not connecting. */
         const val PENDING_CONNECT_MS = 20_000L
+
+        /** One scan window: long enough to see a phone come into range, short enough to be idle. */
+        const val SCAN_WINDOW_MS = 30_000L
         val EMPTY_DEVICE_ID = ByteArray(AirChatProtocol.DEVICE_ID_BYTES)
     }
 }

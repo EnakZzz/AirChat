@@ -51,6 +51,16 @@ public protocol Transport: AnyObject {
     func start()
     func stop()
 
+    /// Starts looking for nearby peers.
+    ///
+    /// Separate from `start()` on purpose: advertising and the GATT server are always on once the
+    /// node runs, so a peer that scans can always find this device, while *looking* is what costs
+    /// battery and is therefore something the user asks for.
+    func startScan()
+
+    /// Stops looking; advertising and established links are untouched.
+    func stopScan()
+
     /// Refreshes the presence block carried in the advertising packet.
     func updatePresence(protocolVersion: Int, capabilities: Int)
 

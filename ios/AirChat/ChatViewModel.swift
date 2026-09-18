@@ -180,6 +180,16 @@ final class ChatViewModel: ObservableObject {
         reload()
     }
 
+    func startScan() {
+        container.node.startScan()
+        reload()
+    }
+
+    func stopScan() {
+        container.node.stopScan()
+        reload()
+    }
+
     func requestChannelSync() {
         container.node.requestChannelSync()
     }

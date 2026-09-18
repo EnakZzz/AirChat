@@ -82,6 +82,7 @@ final class DiagnosticStateReporter {
             + "\"self\":\"\(state.deviceIdHex)\","
             + "\"status\":\"\(statusName(state.status))\","
             + "\"nearby\":\(state.nearby.count),"
+            + "\"scanning\":\(state.scanning),"
             + "\"nearbyLabels\":["
             + state.nearby.map { "\"\(self.escaped($0.label))\"" }.joined(separator: ",")
             + "],"
@@ -108,6 +109,7 @@ final class DiagnosticStateReporter {
     private func statusName(_ status: ChatStatus) -> String {
         switch status {
         case .stopped: return "stopped"
+        case .idle: return "idle"
         case .bluetoothUnavailable: return "bluetoothunavailable"
         case .permissionMissing: return "permissionmissing"
         case .scanning: return "scanning"

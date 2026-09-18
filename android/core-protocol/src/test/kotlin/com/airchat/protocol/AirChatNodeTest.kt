@@ -518,6 +518,47 @@ class AirChatNodeTest {
     }
 
     @Test
+    fun `scanning is a bounded user action rather than a default`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val transport = FakeTransport()
+            // A 50 ms window stands in for the 30 s one.
+            val node = AirChatNode(InMemoryChatStore(), transport, scope, scanWindowMs = 50)
+            node.start()
+
+            // Starting the node must not start looking: that is the user's decision, and it is the
+            // part that costs battery.
+            assertEquals(0, transport.scanStarts)
+            assertFalse(node.state.value.scanning)
+
+            node.startScan()
+            awaitUntil("the scan window is open") {
+                transport.scanStarts == 1 && node.state.value.scanning
+            }
+            awaitUntil("the window closes by itself") {
+                transport.scanStops == 1 && !node.state.value.scanning
+            }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `ending a scan leaves established links alone`() = withHarness { h ->
+        h.connect()
+        h.awaitBothReady()
+
+        h.nodeA.startScan()
+        awaitUntil("nodeA is scanning") { h.nodeA.state.value.scanning }
+        h.nodeA.stopScan()
+        awaitUntil("nodeA stopped scanning") { !h.nodeA.state.value.scanning }
+
+        // Scanning is about finding people, not about being connected to them.
+        delay(100)
+        assertEquals(1, h.nodeA.state.value.readyLinkCount)
+    }
+
+    @Test
     fun `tapping a peer that is already linked does not start a second connection`() = withHarness { h ->
         // The tap names the handle we scanned; the link reports a different handle for the same
         // person (the iOS case). Recognising the existing link by handle alone therefore failed, and

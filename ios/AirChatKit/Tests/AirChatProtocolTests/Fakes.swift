@@ -168,6 +168,18 @@ final class FakeTransport: Transport {
     /// Handles the node asked to connect to, in order, so a tap can be asserted end to end.
     private(set) var connectRequests: [String] = []
 
+    /// Scan windows the node opened and closed, so "scanning is a user action" is assertable.
+    private(set) var scanStarts = 0
+    private(set) var scanStops = 0
+
+    func startScan() {
+        scanStarts += 1
+    }
+
+    func stopScan() {
+        scanStops += 1
+    }
+
     func connectTo(peerLabel: String) {
         connectRequests.append(peerLabel)
     }

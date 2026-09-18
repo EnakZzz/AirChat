@@ -36,7 +36,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -302,6 +304,8 @@ private fun ChatShell(
                 when (selectedTab) {
                     Tab.Nearby -> NearbyScreen(
                         state = uiState,
+                        onScan = viewModel::startScan,
+                        onStopScan = viewModel::stopScan,
                         onRowClick = { row ->
                             // One tap means three different things depending on state, which is what
                             // keeps the screen free of buttons: reach out, compare the code, or open
@@ -327,7 +331,6 @@ private fun ChatShell(
                             }
                         },
                         onDismissVerify = viewModel::dismissVerification,
-                        onRefresh = viewModel::refreshRadio,
                     )
 
                     Tab.Channel -> ChannelScreen(
@@ -372,17 +375,33 @@ private fun ChatShell(
 @Composable
 private fun NearbyScreen(
     state: ChatUiState,
+    onScan: () -> Unit,
+    onStopScan: () -> Unit,
     onRowClick: (NearbyRow) -> Unit,
     onConfirmSafety: (String, Boolean) -> Unit,
     onDismissVerify: () -> Unit,
-    onRefresh: () -> Unit,
 ) {
+    val scanning = state.node.scanning
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(stringResource(R.string.tab_nearby)) },
             actions = {
-                IconButton(onClick = onRefresh) {
-                    Icon(Icons.Filled.Place, contentDescription = stringResource(R.string.nearby_rescan))
+                // Looking for people is the one thing here that costs battery, so it is a button
+                // rather than something the app does to you indefinitely.
+                TextButton(onClick = if (scanning) onStopScan else onScan) {
+                    Text(
+                        stringResource(
+                            if (scanning) R.string.nearby_stop_scan else R.string.nearby_start_scan,
+                        ),
+                    )
+                }
+                IconButton(onClick = if (scanning) onStopScan else onScan) {
+                    Icon(
+                        imageVector = if (scanning) Icons.Filled.Close else Icons.Filled.Search,
+                        contentDescription = stringResource(
+                            if (scanning) R.string.nearby_stop_scan else R.string.nearby_start_scan,
+                        ),
+                    )
                 }
             },
         )
@@ -400,7 +419,9 @@ private fun NearbyScreen(
             } else {
                 item {
                     Text(
-                        stringResource(R.string.nearby_empty),
+                        stringResource(
+                            if (scanning) R.string.nearby_empty else R.string.nearby_not_scanned,
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -447,7 +468,11 @@ private fun StatusCard(state: NodeState) {
         }
         ChatStatus.STOPPED -> {
             label = stringResource(R.string.status_stopped)
-            detail = "打开后台连接后会自动寻找附近的人"
+            detail = "打开后台连接后即可扫描附近的人"
+        }
+        ChatStatus.IDLE -> {
+            label = stringResource(R.string.status_idle)
+            detail = "广播中，别人仍能发现你；点右上角「扫描」开始寻找附近的人"
         }
     }
     Card(

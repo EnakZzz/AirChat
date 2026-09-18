@@ -91,6 +91,7 @@ class DiagnosticStateReporter(
             append("\"platform\":\"android\",")
             append("\"self\":\"").append(state.deviceIdHex).append("\",")
             append("\"status\":\"").append(state.status.name.lowercase()).append("\",")
+            append("\"scanning\":").append(state.scanning).append(',')
             append("\"nearby\":").append(state.nearby.size).append(',')
             append("\"nearbyLabels\":[").append(
                 state.nearby.joinToString(",") { "\"" + escape(it.label) + "\"" },

@@ -185,6 +185,10 @@ class ChatViewModel(private val container: AirChatContainer) : ViewModel() {
         viewModelScope.launch { container.node.sendTyping(peer, active) }
     }
 
+    fun startScan() = container.node.startScan()
+
+    fun stopScan() = container.node.stopScan()
+
     fun refreshRadio() = container.refreshRadio()
 
     fun logs(): List<String> = container.logTail()

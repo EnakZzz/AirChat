@@ -44,6 +44,8 @@ public final class BleTransport: NSObject, Transport {
 
     private var running = false
     private var scanning = false
+    /// True while the user (or a debug hook) has asked for scanning; see `startScan`.
+    private var scanRequested = false
     private var advertising = false
 
     private var links: [String: BleLink] = [:]
@@ -118,10 +120,29 @@ public final class BleTransport: NSObject, Transport {
         }
     }
 
+    public func startScan() {
+        queue.sync {
+            guard running else { return }
+            scanRequested = true
+            startScanning()
+        }
+    }
+
+    public func stopScan() {
+        queue.sync {
+            scanRequested = false
+            stopScanning()
+            if running {
+                emit(.status(.idle, "未扫描，点「扫描」开始寻找附近的人"))
+            }
+        }
+    }
+
     public func stop() {
         queue.sync {
             guard running else { return }
             running = false
+            scanRequested = false
             stopScanning()
             stopAdvertising()
             for link in links.values { link.close() }
@@ -395,8 +416,10 @@ extension BleTransport: CBCentralManagerDelegate {
             switch central.state {
             case .poweredOn:
                 // Advertising is owned by the peripheral manager's state callback, which runs
-                // independently; the central side only needs to start scanning.
-                self.startScanning()
+                // independently. Scanning only happens if it was asked for: it is the user's
+                // decision (see startScan), and a radio that never stops looking is exactly what
+                // this replaced.
+                if self.scanRequested { self.startScanning() }
             case .poweredOff:
                 self.emit(.status(.bluetoothUnavailable, "请打开蓝牙"))
                 self.emitSubscriptionsStopped(central)
@@ -512,7 +535,9 @@ extension BleTransport: CBCentralManagerDelegate {
         if links.count >= AirChatProtocol.maxLinks {
             stopScanning()
             emit(.status(.nearbyFull, "附近人数已满（上限 \(AirChatProtocol.maxLinks)）"))
-        } else {
+        } else if scanRequested {
+            // Only resume what the user asked for: a link coming and going must not silently turn
+            // scanning back on after the scan window has ended.
             startScanning()
         }
     }
@@ -811,6 +836,10 @@ public final class BleTransport: Transport {
     public func updatePresence(protocolVersion: Int, capabilities: Int) {}
 
     public func connectTo(peerLabel: String) {}
+
+    public func startScan() {}
+
+    public func stopScan() {}
 }
 
 #endif // os(iOS)

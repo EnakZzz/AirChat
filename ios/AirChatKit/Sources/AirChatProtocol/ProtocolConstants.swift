@@ -115,6 +115,8 @@ public enum TypingScope: Int {
 /// Link lifecycle status surfaced to the UI.
 public enum ChatStatus: Equatable {
     case stopped
+    /// Radio up and advertising, but not looking for anyone: scanning is a user action.
+    case idle
     case bluetoothUnavailable
     case permissionMissing
     case scanning
