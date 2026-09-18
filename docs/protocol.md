@@ -540,8 +540,11 @@ Android 与 iOS 的 LE 连接数都有实际上限（经验值 7–8）。因此
 | received_ms | INTEGER | 本机首次处理时间（排序兜底） |
 | status | INTEGER | 0 = local，1 = sent，2 = delivered，3 = failed |
 
-排序键：`COALESCE(timestamp_ms, received_ms)` 与 `received_ms` 组合，避免对端时钟漂移
-导致乱序。索引：`(conversation_id, received_ms)`、`(status)`。
+排序键：`timestamp_ms`、`received_ms`、`msg_id` 依次比较（`timestamp_ms` 即发送方时间，
+两端都非空，因此等价于 `COALESCE(timestamp_ms, received_ms)`）。用发送方时间做主键是必需的：
+SYNC 补拉回来的一批历史会在同一个毫秒内写入，只按 `received_ms` 排序会让这批消息按
+`msg_id` 乱序显示。保留策略仍按 `received_ms`（到达时间）计算，与展示顺序无关。
+索引：`(conversation_id, received_ms)`、`(status)`。
 
 ### sessions
 

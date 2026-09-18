@@ -251,8 +251,8 @@ public final class SqliteChatStore: ChatStore {
                 SELECT msg_id, conversation_id, kind, direction, sender_id, recipient_id, text,
                        timestamp_ms, received_ms, status
                 FROM messages WHERE conversation_id = ?
-                ORDER BY received_ms DESC, msg_id DESC LIMIT ?
-            ) ORDER BY received_ms ASC, msg_id ASC
+                ORDER BY timestamp_ms DESC, received_ms DESC, msg_id DESC LIMIT ?
+            ) ORDER BY timestamp_ms ASC, received_ms ASC, msg_id ASC
             """,
             [.text(conversationId), .integer(Int64(limit))]
         ) { row in
@@ -269,7 +269,7 @@ public final class SqliteChatStore: ChatStore {
                    timestamp_ms, received_ms, status
             FROM messages
             WHERE kind = \(MessageKind.channel) AND received_ms >= ?
-            ORDER BY received_ms ASC, msg_id ASC LIMIT ?
+            ORDER BY timestamp_ms ASC, received_ms ASC, msg_id ASC LIMIT ?
             """,
             [.integer(sinceMs), .integer(Int64(limit))]
         ) { row in

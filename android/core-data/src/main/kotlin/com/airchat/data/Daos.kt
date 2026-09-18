@@ -46,13 +46,20 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :status WHERE msg_id = :msgId")
     suspend fun updateStatus(msgId: ByteArray, status: Int): Int
 
-    /** Most recent [limit] messages of one conversation, oldest first. */
+    /**
+     * Most recent [limit] messages of one conversation, oldest first.
+     *
+     * Ordered by the sort key documented in `docs/protocol.md`: the sender's timestamp first, with
+     * the local receive time and the message id breaking ties. Sorting on the receive time alone
+     * put a batch of history backfilled by SYNC in msg_id order, because every message of such a
+     * batch is stored inside the same millisecond.
+     */
     @Query(
         """
         SELECT * FROM (
             SELECT * FROM messages WHERE conversation_id = :conversationId
-            ORDER BY received_ms DESC, msg_id DESC LIMIT :limit
-        ) ORDER BY received_ms ASC, msg_id ASC
+            ORDER BY timestamp_ms DESC, received_ms DESC, msg_id DESC LIMIT :limit
+        ) ORDER BY timestamp_ms ASC, received_ms ASC, msg_id ASC
         """,
     )
     suspend fun recent(conversationId: String, limit: Int): List<MessageEntity>
@@ -61,7 +68,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE kind = 0 AND received_ms >= :sinceMs
-        ORDER BY received_ms ASC, msg_id ASC LIMIT :limit
+        ORDER BY timestamp_ms ASC, received_ms ASC, msg_id ASC LIMIT :limit
         """,
     )
     suspend fun channelSince(sinceMs: Long, limit: Int): List<MessageEntity>

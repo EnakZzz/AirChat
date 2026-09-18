@@ -25,13 +25,24 @@ import java.util.concurrent.CopyOnWriteArrayList
  */
 class AirChatNodeTest {
 
-    private suspend fun awaitUntil(description: String, timeoutMs: Long = 5_000, predicate: suspend () -> Boolean) {
+    /**
+     * @param diagnostic extra state to print on timeout. A link-setup wait that fails says nothing
+     *   useful on its own, and the difference between "the handshake never started" and "the
+     *   handshake is stuck half way" is the whole diagnosis.
+     */
+    private suspend fun awaitUntil(
+        description: String,
+        timeoutMs: Long = 5_000,
+        diagnostic: (() -> String)? = null,
+        predicate: suspend () -> Boolean,
+    ) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             if (predicate()) return
             delay(10)
         }
-        fail("timed out after ${timeoutMs}ms waiting for: $description")
+        val extra = diagnostic?.let { " (" + it() + ")" } ?: ""
+        fail("timed out after ${timeoutMs}ms waiting for: $description$extra")
     }
 
     private class Harness {
@@ -241,7 +252,12 @@ class AirChatNodeTest {
 
             FakeBle.connect(transportA, transportB, 185, aIsCentral = true, labelPrefix = "ab")
             FakeBle.connect(transportA, transportC, 185, aIsCentral = false, labelPrefix = "ac")
-            awaitUntil("A has two ready links") { nodeA.state.value.readyLinkCount == 2 }
+            awaitUntil(
+                description = "A has two ready links",
+                diagnostic = {
+                    "a=${nodeA.state.value.links} b=${nodeB.state.value.links} c=${nodeC.state.value.links}"
+                },
+            ) { nodeA.state.value.readyLinkCount == 2 }
 
             nodeA.postChannelMessage("广播给所有人")
             awaitUntil("both peers received the broadcast") {
@@ -271,8 +287,8 @@ class AirChatNodeTest {
 
             // A posts while alone: stored locally, marked FAILED because nothing was reachable.
             nodeA.postChannelMessage("离线时写的 1")
-            // Distinct milliseconds: the store orders by (received_ms, msg_id), so two messages
-            // written inside the same millisecond have no order to assert.
+            // Distinct milliseconds, so the assertion below holds whether the implementation
+            // orders by the sender's timestamp or by the local receive time.
             delay(10)
             nodeA.postChannelMessage("离线时写的 2")
             awaitUntil("A stored both messages") { storeA.messageOrder.size == 2 }

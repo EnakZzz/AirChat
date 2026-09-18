@@ -277,8 +277,8 @@ final class AirChatNodeTests: XCTestCase {
         nodeA.start(); nodeB.start()
         // A posts while alone: stored locally, marked failed because nothing was reachable.
         nodeA.postChannelMessage("离线时写的 1")
-        // Distinct milliseconds: the store orders by (received_ms, msg_id), so two messages written
-        // inside the same millisecond have no order to assert.
+        // Distinct milliseconds, so the assertion below holds whether the implementation orders by
+        // the sender's timestamp or by the local receive time.
         Thread.sleep(forTimeInterval: 0.01)
         nodeA.postChannelMessage("离线时写的 2")
         waitUntil("A stored both messages") { storeA.messageOrder.count == 2 }

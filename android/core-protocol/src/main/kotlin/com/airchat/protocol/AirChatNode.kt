@@ -1,6 +1,7 @@
 package com.airchat.protocol
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -185,7 +186,14 @@ class AirChatNode(
         publishState()
 
         transport.updatePresence(AirChatProtocol.VERSION, capabilities)
-        collectorJob = scope.launch { transport.events.collect { handleTransportEvent(it) } }
+        // UNDISPATCHED so the collector is subscribed before this returns. `Transport.events` is a
+        // shared flow with no replay, so an event emitted before the collector attaches is dropped
+        // - and the first event after `start()` is a LinkOpened, which would leave a link that
+        // exists on the radio and nowhere else: it never handshakes and never closes. Later
+        // emissions still resume on the scope's dispatcher, so nothing else changes.
+        collectorJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transport.events.collect { handleTransportEvent(it) }
+        }
         maintenanceJob = scope.launch { maintenanceLoop() }
         transport.start()
     }

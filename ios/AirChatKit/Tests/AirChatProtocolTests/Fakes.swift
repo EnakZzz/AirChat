@@ -24,6 +24,9 @@ final class FakeLink: Link {
     private var handler: ((Data) -> Void)?
     private var earlyBytes: [Data] = []
 
+    /// Stands in for the transport's single serial queue; see `closeFromPeer`.
+    private let lock = NSLock()
+
     /// Every chunk handed to the transport, in order, tagged with the channel it used.
     private(set) var sentChunks: [(control: Bool, bytes: Data)] = []
 
@@ -37,38 +40,73 @@ final class FakeLink: Link {
     }
 
     func setInboundHandler(_ handler: @escaping (Data) -> Void) {
+        let pending: [Data]
+        lock.lock()
         self.handler = handler
-        // Honour the transport contract: bytes that arrived before registration are flushed.
-        let pending = earlyBytes
+        pending = earlyBytes
         earlyBytes.removeAll()
+        lock.unlock()
+        // Honour the transport contract: bytes that arrived before registration are flushed.
+        // Outside the lock, because the flush runs peer code that may send straight back.
         for bytes in pending { handler(bytes) }
     }
 
     func send(_ bytes: Data, control: Bool) -> Bool {
-        guard !closed, !failSend else { return false }
+        let target: FakeLink?
+        lock.lock()
+        if closed || failSend {
+            lock.unlock()
+            return false
+        }
         sentChunks.append((control: control, bytes: bytes))
-        peer?.deliver(bytes)
+        target = peer
+        lock.unlock()
+        // Delivered outside the lock: the peer's handler runs protocol code that writes straight
+        // back through this same pair, and holding a lock across it would deadlock.
+        target?.deliver(bytes)
         return true
     }
 
     func close() {
-        guard !closed else { return }
-        closed = true
-        onClosed?()
-        if let peer, !peer.closed {
-            peer.closed = true
-            peer.onClosed?()
+        let notify: (() -> Void)?
+        lock.lock()
+        if closed {
+            lock.unlock()
+            return
         }
+        closed = true
+        notify = onClosed
+        lock.unlock()
+        notify?()
+        // A BLE disconnect is observed by both ends, so the peer's transport must also report it.
+        peer?.closeFromPeer()
+    }
+
+    /// Marks this link closed on behalf of the peer that closed.
+    ///
+    /// The real transports deliver every callback on one serial queue per link, so a byte that
+    /// arrives before `setInboundHandler` is either seen by the flush or by the handler itself - it
+    /// cannot fall between them. The fake had no such serialisation and the two nodes run on their
+    /// own queues, so a HELLO could be appended to `earlyBytes` after the flush had already read
+    /// them: the link then existed on both sides with no bytes ever crossing it, which is far more
+    /// confusing to debug than a crash. This lock restores the serial-queue contract.
+    private func closeFromPeer() {
+        let notify: (() -> Void)?
+        lock.lock()
+        if closed {
+            lock.unlock()
+            return
+        }
+        closed = true
+        notify = onClosed
+        lock.unlock()
+        notify?()
     }
 
     /// Injects raw bytes as if they had been received from the peer. Used to simulate a hostile or
     /// buggy peer (spoofed sender ids, unknown frame types, malformed payloads).
     func inject(_ bytes: Data) {
-        if let handler {
-            handler(bytes)
-        } else {
-            earlyBytes.append(bytes)
-        }
+        deliver(bytes)
     }
 
     /// Number of frames the local side wrote, derived from the raw chunk stream.
@@ -85,12 +123,21 @@ final class FakeLink: Link {
     }
 
     private func deliver(_ bytes: Data) {
-        guard !closed else { return }
+        let target: ((Data) -> Void)?
+        lock.lock()
+        if closed {
+            lock.unlock()
+            return
+        }
         if let handler {
-            handler(bytes)
+            target = handler
+            lock.unlock()
         } else {
             earlyBytes.append(bytes)
+            lock.unlock()
+            return
         }
+        target?(bytes)
     }
 }
 
@@ -291,14 +338,15 @@ final class InMemoryChatStore: ChatStore {
             .map { $0 }
     }
 
-    /// The real store orders by `received_ms, msg_id`; a fake that sorted on the timestamp alone
-    /// would not, because `sorted` is not stable and the input is a Dictionary whose order depends
-    /// on the per-process hash seed. Two messages stored in the same millisecond would then come
-    /// back in either order, which is a flaky test rather than a property of the system.
+    /// The sort key from `docs/protocol.md`: the sender's timestamp first, then the local receive
+    /// time, then the message id. Ordering on the receive time alone also made this fake
+    /// non-deterministic, because `sorted` is not stable and the input is a Dictionary whose order
+    /// depends on the per-process hash seed - and a batch of history backfilled by SYNC shares one
+    /// receive millisecond, so the whole batch would come back in a random order.
     private static func chronological(_ lhs: MessageRecord, _ rhs: MessageRecord) -> Bool {
-        lhs.receivedMs == rhs.receivedMs
-            ? ByteOps.toHex(lhs.msgId) < ByteOps.toHex(rhs.msgId)
-            : lhs.receivedMs < rhs.receivedMs
+        if lhs.timestampMs != rhs.timestampMs { return lhs.timestampMs < rhs.timestampMs }
+        if lhs.receivedMs != rhs.receivedMs { return lhs.receivedMs < rhs.receivedMs }
+        return ByteOps.toHex(lhs.msgId) < ByteOps.toHex(rhs.msgId)
     }
 
     func saveSession(_ record: SessionRecord) throws {

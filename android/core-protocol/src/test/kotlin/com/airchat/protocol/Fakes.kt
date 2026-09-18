@@ -32,6 +32,9 @@ class FakeLink(
     /** When true, [send] reports failure, simulating a saturated or dropped link. */
     var failSend: Boolean = false
 
+    /** Stands in for the transport's single serial queue; see [closeFromPeer]. */
+    private val lock = Any()
+
     /** Every chunk handed to the transport, in order, tagged with the channel it used. */
     val sentChunks = CopyOnWriteArrayList<Pair<Boolean, ByteArray>>()
 
@@ -39,31 +42,57 @@ class FakeLink(
         private set
 
     override fun setInboundHandler(handler: (ByteArray) -> Unit) {
-        this.handler = handler
+        val pending: List<ByteArray>
+        synchronized(lock) {
+            this.handler = handler
+            pending = earlyBytes.toList()
+            earlyBytes.clear()
+        }
         // Honour the transport contract: bytes that arrived before registration are flushed.
-        val pending = earlyBytes.toList()
-        earlyBytes.clear()
+        // Outside the lock, because the flush runs peer code that may send straight back.
         for (bytes in pending) handler(bytes)
     }
 
     override fun send(bytes: ByteArray, control: Boolean): Boolean {
-        if (closed || failSend) return false
-        sentChunks += control to bytes
-        peer?.deliver(bytes)
+        val target = synchronized(lock) {
+            if (closed || failSend) return false
+            sentChunks += control to bytes
+            peer
+        }
+        // Delivered outside the lock: the peer's handler runs protocol code that writes back
+        // through this same pair, and holding a lock across it would deadlock.
+        target?.deliver(bytes)
         return true
     }
 
     override fun close() {
-        if (closed) return
-        closed = true
-        onClosed?.invoke()
-        // A BLE disconnect is observed by both ends, so the peer's transport must also report it.
-        peer?.let {
-            if (!it.closed) {
-                it.closed = true
-                it.onClosed?.invoke()
-            }
+        val notify = synchronized(lock) {
+            if (closed) return
+            closed = true
+            onClosed
         }
+        notify?.invoke()
+        // A BLE disconnect is observed by both ends, so the peer's transport must also report it.
+        peer?.closeFromPeer()
+    }
+
+    /**
+     * Marks this link closed on behalf of the peer that closed.
+     *
+     * The real transports deliver every callback on one serial queue per link, so a byte that
+     * arrives before `setInboundHandler` is either seen by the flush or by the handler itself - it
+     * cannot fall between them. The fake had no such serialisation and two nodes run on their own
+     * dispatchers, so a HELLO could be appended to `earlyBytes` after the flush had already read
+     * them: the link then existed on both sides with no bytes ever crossing it, which is far more
+     * confusing to debug than a crash. This lock restores the serial-queue contract.
+     */
+    private fun closeFromPeer() {
+        val notify = synchronized(lock) {
+            if (closed) return
+            closed = true
+            onClosed
+        }
+        notify?.invoke()
     }
 
     /**
@@ -71,12 +100,20 @@ class FakeLink(
      * or buggy peer (spoofed sender ids, unknown frame types, malformed payloads).
      */
     fun inject(bytes: ByteArray) {
-        handler?.invoke(bytes) ?: earlyBytes.add(bytes)
+        deliver(bytes)
     }
 
     private fun deliver(bytes: ByteArray) {
-        if (closed) return
-        handler?.invoke(bytes) ?: earlyBytes.add(bytes)
+        val target = synchronized(lock) {
+            if (closed) return
+            val current = handler
+            if (current == null) {
+                earlyBytes += bytes
+                return
+            }
+            current
+        }
+        target.invoke(bytes)
     }
 
     /** Number of frames the local side wrote, derived from the raw chunk stream. */
@@ -239,11 +276,17 @@ class InMemoryChatStore(
 
     private companion object {
         /**
-         * The real store orders by `received_ms, msg_id`. Sorting on the timestamp alone happens to
-         * look right here because a stable sort preserves a LinkedHashMap's insertion order, but it
-         * would not match production, and the two fakes must not disagree about a documented order.
+         * The sort key from `docs/protocol.md`: the sender's timestamp first, then the local
+         * receive time, then the message id. A fake that sorted on the receive time alone would
+         * look right here because a stable sort preserves a LinkedHashMap's insertion order, while
+         * Swift's is not stable and the real stores are SQL - the two fakes and both stores must
+         * not disagree about a documented order.
          */
-        val CHRONOLOGICAL = compareBy<MessageRecord>({ it.receivedMs }, { ByteOps.toHex(it.msgId) })
+        val CHRONOLOGICAL = compareBy<MessageRecord>(
+            { it.timestampMs },
+            { it.receivedMs },
+            { ByteOps.toHex(it.msgId) },
+        )
     }
 
     override suspend fun saveSession(record: SessionRecord) {
