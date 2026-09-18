@@ -511,12 +511,15 @@ def main() -> int:
         f"<-> Android(central={android_link['central']}, mtu={android_link['mtu']})")
     log(f"  identity exchange     : iOS peer={ios_link['peer']} , Android peer={android_link['peer']}")
     log(f"  safety code agreement : {ios_code} (identical on both platforms)")
-    log(f"  channel message       : iOS got {ios_state.get('lastChannel')!r}, "
-        f"Android got {android_state.get('lastChannel')!r}")
-    log(f"  private message (E2EE): iOS decrypted {ios_state.get('lastPrivate')!r}, "
-        f"Android decrypted {android_state.get('lastPrivate')!r}")
-    log(f"  delivery acks         : iOS={ios_state.get('delivered')}, "
-        f"Android={android_state.get('delivered')}")
+    if not args.connect_first:
+        # Only the scripted-send mode sends messages; printing empty counters for the tap mode reads
+        # like a failure that is not there.
+        log(f"  channel message       : iOS got {ios_state.get('lastChannel')!r}, "
+            f"Android got {android_state.get('lastChannel')!r}")
+        log(f"  private message (E2EE): iOS decrypted {ios_state.get('lastPrivate')!r}, "
+            f"Android decrypted {android_state.get('lastPrivate')!r}")
+        log(f"  delivery acks         : iOS={ios_state.get('delivered')}, "
+            f"Android={android_state.get('delivered')}")
     return 0
 
 
