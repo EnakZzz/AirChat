@@ -337,8 +337,16 @@ class DeviceEnv:
             self.adb + ["logcat", "-v", "brief"],
             stdout=open(path, "w"), stderr=subprocess.STDOUT, text=True,
         )
-        run(self.adb + ["am", "start", "-n",
-                        f"{self.args.android_package}/{self.args.android_activity}"] + args)
+        result = run(self.adb + ["am", "start", "-n",
+                                 f"{self.args.android_package}/{self.args.android_activity}"] + args)
+        started = "Starting:" in (result.stdout or "") + (result.stderr or "")
+        if not started:
+            # A launch that quietly does nothing is the difference between "the app is broken" and
+            # "the app never ran" - and the second one leaves no trace in the log it never wrote.
+            log(
+                "  WARNING: am start did not report Starting: "
+                + (result.stdout or result.stderr or "no output").strip().splitlines()[0]
+            )
         return process, path
 
     def restart_both(self, tag: str, ios_env: dict[str, str], android_args: list[str]):
@@ -347,15 +355,20 @@ class DeviceEnv:
         android_process, android_log = self.start_android(android_args, tag)
         return ios_process, android_process, ios_log, android_log
 
-    def stop(self, processes: tuple) -> None:
-        for process in processes:
-            if process is None or process.poll() is not None:
+    def stop(self, handles) -> None:
+        """Terminates whatever in `handles` is a live process.
+
+        Callers pass the tuples the launch helpers return, which also carry log paths; skipping
+        anything without a `poll()` keeps those call sites readable.
+        """
+        for handle in handles:
+            if handle is None or not hasattr(handle, "poll") or handle.poll() is not None:
                 continue
-            process.send_signal(signal.SIGTERM)
+            handle.send_signal(signal.SIGTERM)
             try:
-                process.wait(timeout=10)
+                handle.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                process.kill()
+                handle.kill()
 
     # -- observation -------------------------------------------------------
 
@@ -383,6 +396,10 @@ class DeviceEnv:
                 return ios_new or ios, android_new or android, True
             time.sleep(poll)
         log(f"  timed out after {timeout}s waiting for: {description}")
+        if ios is None:
+            log("  iOS produced no heartbeat at all - it never ran, or it crashed")
+        if android is None:
+            log("  Android produced no heartbeat at all - it never ran, or it crashed")
         return ios, android, False
 
 
