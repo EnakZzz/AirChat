@@ -59,6 +59,18 @@ final class AppContainer {
             node.startScan(durationMs: 300_000)
             connectFirstPeer()
         }
+        // Forget the safety-code verdicts: a confirmed code is deliberately remembered and not
+        // offered again, so a suite that wants to observe a *first* comparison needs a device with
+        // no stored verdict - and clearing app data instead would drop the Bluetooth permission.
+        if ProcessInfo.processInfo.environment["AIRCHAT_CLEAR_TRUST"] == "1" {
+            node.clearTrustVerdicts()
+        }
+        // Scan and nothing else: the harness uses this for the phases that are about the link itself
+        // rather than about a scripted message.
+        if ProcessInfo.processInfo.environment["AIRCHAT_SCAN"] == "1" {
+            logger.log("SelfTest", "debug scan requested")
+            node.startScan(durationMs: 300_000)
+        }
         #endif
     }
 

@@ -304,6 +304,19 @@ public final class AirChatNode: LinkSessionListener {
         }
     }
 
+    /// Debug-only: forgets every safety-code verdict, so a first comparison can be observed again
+    /// without clearing app data (which would also drop the Bluetooth permission).
+    public func clearTrustVerdicts() {
+        queue.async {
+            let peers = (try? self.store.listPeers()) ?? []
+            for peer in peers {
+                try? self.store.setTrustState(peer.deviceId, trustState: TrustState.unverified)
+            }
+            self.logger.log("AirChatNode", "cleared \(peers.count) trust verdict(s)")
+            self.publishState()
+        }
+    }
+
     /// Ends the scan window early.
     public func stopScan() {
         queue.sync {

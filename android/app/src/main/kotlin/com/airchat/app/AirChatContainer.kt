@@ -133,6 +133,27 @@ class AirChatContainer(context: Context) {
     }
 
     /**
+     * Debug-only: forgets every safety-code verdict.
+     *
+     * A confirmed code is deliberately remembered and not offered again, so observing a first
+     * comparison normally means clearing app data - which also clears the Bluetooth permission and
+     * leaves the suite waiting on a system dialog. This keeps the two concerns apart.
+     */
+    fun clearTrustVerdicts() {
+        scope.launch {
+            val peers = store.listPeers()
+            for (peer in peers) store.setTrustState(peer.deviceId, TrustState.UNVERIFIED)
+            logger.log(TAG, "cleared ${peers.size} trust verdict(s)")
+        }
+    }
+
+    /** Debug-only: presses 扫描, which is how any of the harness phases begins. */
+    fun startDebugScan() {
+        logger.log(TAG, "debug scan requested")
+        node.startScan(DEBUG_SCAN_WINDOW_MS)
+    }
+
+    /**
      * Debug-only: taps the first person that appears in the nearby list, exactly the way a user
      * would, and stops there. The safety-code prompt that follows is the assertion the harness
      * makes, so this deliberately does not confirm anything on the user's behalf.

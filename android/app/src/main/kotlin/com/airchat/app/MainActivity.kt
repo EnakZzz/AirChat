@@ -24,6 +24,8 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val SELF_TEST_EXTRA = "airchat_selftest"
         const val CONNECT_FIRST_EXTRA = "airchat_connect_first"
+        const val SCAN_EXTRA = "airchat_scan"
+        const val CLEAR_TRUST_EXTRA = "airchat_clear_trust"
     }
 
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
@@ -44,6 +46,12 @@ class MainActivity : ComponentActivity() {
             // Taps the first person that shows up, so the harness can drive the same path a user
             // does instead of only the messaging path.
             if (intent?.getBooleanExtra(CONNECT_FIRST_EXTRA, false) == true) container.connectFirstPeer()
+            // Scan and nothing else: the harness uses this for the phases that are about the link
+            // itself rather than about a scripted message.
+            if (intent?.getBooleanExtra(SCAN_EXTRA, false) == true) container.startDebugScan()
+            // Forgetting the verdicts is what lets a suite observe a *first* safety-code comparison
+            // without reinstalling the app, which would drop the Bluetooth permission.
+            if (intent?.getBooleanExtra(CLEAR_TRUST_EXTRA, false) == true) container.clearTrustVerdicts()
         }
 
         setContent {
