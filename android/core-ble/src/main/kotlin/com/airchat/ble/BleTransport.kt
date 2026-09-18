@@ -123,8 +123,10 @@ class BleTransport(
             logger.log(TAG, "start: adapter ready (ticket=$ticket), opening GATT server and radio")
             openGattServer()
             startAdvertising()
-            // Scanning is deliberately not started here: it is the user's action (see startScan).
-            // Advertising and the server stay up so a peer that does scan can still find us.
+            // Scanning is deliberately not started here unless it was already asked for: it is the
+            // user's action (see startScan). Advertising and the server stay up so a peer that does
+            // scan can still find us.
+            if (scanRequested) startScanning()
         }
     }
 
@@ -163,9 +165,10 @@ class BleTransport(
 
     override fun startScan() {
         onHandler {
-            if (!running) return@onHandler
+            // The request is recorded even before start(): a caller that asks to scan during launch
+            // must not have that quietly dropped when the radio has not come up yet.
             scanRequested = true
-            startScanning()
+            if (running) startScanning()
         }
     }
 

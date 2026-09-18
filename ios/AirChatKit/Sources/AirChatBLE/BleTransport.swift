@@ -122,9 +122,11 @@ public final class BleTransport: NSObject, Transport {
 
     public func startScan() {
         queue.sync {
-            guard running else { return }
+            // The request is recorded even before start(): a caller that asks to scan during launch
+            // must not have that quietly dropped when the managers have not come up yet. The
+            // poweredOn path honours the flag.
             scanRequested = true
-            startScanning()
+            if running { startScanning() }
         }
     }
 

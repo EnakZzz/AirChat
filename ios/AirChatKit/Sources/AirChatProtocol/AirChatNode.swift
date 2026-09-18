@@ -283,7 +283,9 @@ public final class AirChatNode: LinkSessionListener {
     /// still find us, and links that already exist are untouched by the window ending.
     public func startScan(durationMs: Int64? = nil) {
         queue.sync {
-            guard running else { return }
+            // No running check: the transport records the request and honours it when the radio comes
+            // up, and a launch-time scan must not be silently dropped because the node is still
+            // starting.
             scanTimer?.cancel()
             scanning = true
             transport.startScan()
