@@ -206,8 +206,9 @@ public final class AirChatNode: LinkSessionListener {
         capabilities: Int = Capabilities.all,
         /// Link ceiling; matches the transport's own limit, and is a seam for the cap tests.
         maxLinks: Int = AirChatProtocol.maxLinks,
-        /// How long a tap stays in flight; a seam so the expiry path is testable in milliseconds.
-        pendingConnectMs: Int64 = AirChatNode.defaultPendingConnectMs
+        /// How long a tap stays in flight before it is reported as not connecting. A seam, so the
+        /// expiry path is testable in milliseconds rather than in 20 seconds.
+        pendingConnectMs: Int64 = 20_000
     ) {
         self.store = store
         self.transport = transport
@@ -968,7 +969,4 @@ public final class AirChatNode: LinkSessionListener {
     }
 
     private static let nearbyTtlMs: Int64 = 15_000
-
-    /// How long a tap stays "in flight" before it is reported as not connecting.
-    static let defaultPendingConnectMs: Int64 = 20_000
 }
