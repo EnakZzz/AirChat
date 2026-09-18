@@ -793,6 +793,8 @@ public final class BleTransport: Transport {
     public func stop() {}
 
     public func updatePresence(protocolVersion: Int, capabilities: Int) {}
+
+    public func connectTo(peerLabel: String) {}
 }
 
 #endif // os(iOS)
