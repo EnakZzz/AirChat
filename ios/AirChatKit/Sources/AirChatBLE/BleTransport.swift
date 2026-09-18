@@ -306,6 +306,22 @@ public final class BleTransport: NSObject, Transport {
         // So iOS simply never races: it waits out the fallback window and only initiates when the
         // peer has not connected us, which covers "the peer is at its link cap" and iOS<->iOS (both
         // wait, both fall back, and the post-handshake dedupe keeps one link).
+        // Never initiate while we are already talking to somebody.
+        //
+        // The identifier of a peer differs between the role that scanned it and the role it
+        // connected in - measured on device - so the per-identifier guards above cannot tell that
+        // this advertisement is a phone we already have a link with. iOS therefore kept opening a
+        // new connection to a peer it was already connected to, and the duplicate sessions that
+        // produced showed *different safety codes for the same peer*: the session key comes from the
+        // two identities alone, but the code also commits to the handshake nonces, so two handshakes
+        // disagree. That is a security-critical thing to put in front of a user, which is why this is
+        // a policy rather than a rate limit.
+        //
+        // Cost: with several peers in range, iOS reaches whoever initiates towards it plus the first
+        // peer the fallback found, and no further. Tapping a person in the list still connects
+        // explicitly (see connectTo), which is a first-class action since the nearby page redesign.
+        guard !links.values.contains(where: { $0.readyForTraffic }) else { return }
+
         let peerNeverCame = now - (seen[identifier]?.firstSeenMs ?? now) >= AirChatProtocol.scanRetryAfterMs
         guard peerNeverCame else { return }
         _ = peerTicket
