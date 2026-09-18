@@ -518,6 +518,22 @@ class AirChatNodeTest {
     }
 
     @Test
+    fun `tapping a peer that is already linked does not start a second connection`() = withHarness { h ->
+        // The tap names the handle we scanned; the link reports a different handle for the same
+        // person (the iOS case). Recognising the existing link by handle alone therefore failed, and
+        // the app connected to the same peer twice - which the dedupe resolved with a "duplicate
+        // link" notice the user could not act on.
+        h.transportA.reportSeen("SCANNED-BY-A")
+        h.connect(labelA = "CONNECTED-AS", labelB = "SOMETHING-ELSE")
+        h.awaitBothReady()
+
+        assertEquals(ConnectResult.Started, h.nodeA.requestConnect("SCANNED-BY-A"))
+        delay(150)
+        assertTrue("no second connection may start", h.transportA.connectRequests.isEmpty())
+        assertEquals(1, h.nodeA.state.value.links.size)
+    }
+
+    @Test
     fun `a tap is resolved by elimination when the handle changes with the role`() = withHarness { h ->
         // On iOS the identifier of a peer seen while scanning differs from the identifier of the same
         // peer connecting to us - measured on device - so the handle cannot be compared at all.

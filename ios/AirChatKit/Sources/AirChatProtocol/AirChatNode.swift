@@ -307,10 +307,14 @@ public final class AirChatNode: LinkSessionListener {
             guard sessions.count < maxLinks else {
                 return .rejected("附近人数已满（上限 \(maxLinks)），先断开一个")
             }
-            // A tap on a peer that is already connected (or connecting) is not a new connection: it
-            // is the user asking for that peer's safety code, which may already be available.
+            // A handle is not a stable identity across roles, so an existing link is recognised by
+            // handle *or* by the deviceId attributed to that handle. Without the second test, tapping
+            // someone you are already connected to starts a second connection to them - which the
+            // dedupe then resolves with a "duplicate link" notice the user has no way to understand,
+            // because from their point of view they tapped a person, not a link.
+            attributeUnclaimedNearby()
             let alreadyLinked = sessions.values.contains {
-                !$0.isTerminal && $0.link.peerLabel == peerHandle
+                !$0.isTerminal && matchesHandle($0, peerHandle)
             }
             if !alreadyLinked {
                 transport.connectTo(peerLabel: peerHandle)
@@ -338,7 +342,7 @@ public final class AirChatNode: LinkSessionListener {
         attributeUnclaimedNearby()
         guard
             let session = sessions.values.first(where: {
-                $0.isReady && matchesPending($0, pending)
+                $0.isReady && matchesHandle($0, pending.handle)
             }),
             let deviceId = session.peer?.deviceId
         else {
@@ -361,10 +365,10 @@ public final class AirChatNode: LinkSessionListener {
         sessions.values.first { $0.link.peerLabel == handle }?.peerDeviceIdHex ?? handleToPeerId[handle]
     }
 
-    /// Whether a completed link is the peer behind an outstanding tap.
-    private func matchesPending(_ session: LinkSession, _ pending: (handle: String, deadlineMs: Int64)) -> Bool {
-        if session.link.peerLabel == pending.handle { return true }
-        guard let attributed = peerIdForHandle(pending.handle) else { return false }
+    /// Whether an existing session is the peer the caller named, by handle or by attribution.
+    private func matchesHandle(_ session: LinkSession, _ handle: String) -> Bool {
+        if session.link.peerLabel == handle { return true }
+        guard let attributed = peerIdForHandle(handle) else { return false }
         return session.peerDeviceIdHex == attributed
     }
 
@@ -681,6 +685,8 @@ public final class AirChatNode: LinkSessionListener {
         for other in duplicates {
             let keep = chooseLinkToKeep(session, other)
             let drop = keep === session ? other : session
+            // Logged, not announced: resolving a duplicate is automatic and complete, so there is
+            // nothing for the user to do about it.
             logger.log("AirChatNode", "duplicate link with \(peerHex); dropping \(drop.link.linkId)")
             // Both links of a duplicate pair are the same person (dedupe is keyed by peer
             // deviceId), so the tap follows whichever one survives.
@@ -691,7 +697,6 @@ public final class AirChatNode: LinkSessionListener {
             drop.link.close()
             drop.markClosed()
             sessions.removeValue(forKey: drop.link.linkId)
-            emitEvent(.notice("检测到重复连接，已保留一条链路"))
         }
         guard session.state != .closed else {
             // This link lost the dedupe. The survivor already ran this method, so only the prompt

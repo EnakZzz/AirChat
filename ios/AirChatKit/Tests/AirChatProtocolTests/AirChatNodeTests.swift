@@ -543,6 +543,23 @@ final class AirChatNodeTests: XCTestCase {
         XCTAssertEqual(identityB.deviceIdHex, events.prompts.first)
     }
 
+    func testTappingAPeerThatIsAlreadyLinkedDoesNotStartASecondConnection() throws {
+        try withHarness { harness in
+            // The tap names the handle we scanned; the link reports a different handle for the same
+            // person. Recognising the existing link by handle alone therefore failed, and the app
+            // connected to the same peer twice - which the dedupe resolved with a notice the user
+            // could not act on.
+            harness.transportA.reportSeen(label: "SCANNED-BY-A")
+            harness.connect(labelA: "CONNECTED-AS", labelB: "SOMETHING-ELSE")
+            waitForReady(harness)
+
+            XCTAssertEqual(ConnectResult.started, harness.nodeA.requestConnect(peerHandle: "SCANNED-BY-A"))
+            Thread.sleep(forTimeInterval: 0.15)
+            XCTAssertTrue(harness.transportA.connectRequests.isEmpty, "no second connection may start")
+            XCTAssertEqual(1, harness.nodeA.state.links.count)
+        }
+    }
+
     func testATapIsResolvedByEliminationWhenTheHandleChangesWithTheRole() throws {
         try withHarness { harness in
             // On iOS the identifier of a peer seen while scanning differs from the identifier of the
