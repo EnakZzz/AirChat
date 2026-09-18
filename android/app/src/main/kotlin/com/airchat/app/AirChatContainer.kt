@@ -8,6 +8,8 @@ import com.airchat.protocol.AirChatNode
 import com.airchat.protocol.BufferLogger
 import com.airchat.protocol.ChatStore
 import com.airchat.protocol.FanOutLogger
+import com.airchat.protocol.SendResult
+import com.airchat.protocol.TrustState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
