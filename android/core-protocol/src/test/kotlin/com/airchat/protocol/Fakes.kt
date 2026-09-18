@@ -229,13 +229,22 @@ class InMemoryChatStore(
 
     override suspend fun listMessages(conversationId: String, limit: Int): List<MessageRecord> =
         messages.values.filter { it.conversationId == conversationId }
-            .sortedBy { it.receivedMs }
+            .sortedWith(CHRONOLOGICAL)
             .takeLast(limit)
 
     override suspend fun historySince(sinceMs: Long, limit: Int): List<MessageRecord> =
         messages.values.filter { it.kind == MessageKind.CHANNEL && it.receivedMs >= sinceMs }
-            .sortedBy { it.receivedMs }
+            .sortedWith(CHRONOLOGICAL)
             .take(limit)
+
+    private companion object {
+        /**
+         * The real store orders by `received_ms, msg_id`. Sorting on the timestamp alone happens to
+         * look right here because a stable sort preserves a LinkedHashMap's insertion order, but it
+         * would not match production, and the two fakes must not disagree about a documented order.
+         */
+        val CHRONOLOGICAL = compareBy<MessageRecord>({ it.receivedMs }, { ByteOps.toHex(it.msgId) })
+    }
 
     override suspend fun saveSession(record: SessionRecord) {
         sessions[ByteOps.toHex(record.peerDeviceId)] = record

@@ -271,6 +271,9 @@ class AirChatNodeTest {
 
             // A posts while alone: stored locally, marked FAILED because nothing was reachable.
             nodeA.postChannelMessage("离线时写的 1")
+            // Distinct milliseconds: the store orders by (received_ms, msg_id), so two messages
+            // written inside the same millisecond have no order to assert.
+            delay(10)
             nodeA.postChannelMessage("离线时写的 2")
             awaitUntil("A stored both messages") { storeA.messageOrder.size == 2 }
 

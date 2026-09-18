@@ -277,7 +277,7 @@ final class InMemoryChatStore: ChatStore {
         lock.lock(); defer { lock.unlock() }
         return messages.values
             .filter { $0.conversationId == conversationId }
-            .sorted { $0.receivedMs < $1.receivedMs }
+            .sorted(by: Self.chronological)
             .suffix(limit)
             .map { $0 }
     }
@@ -286,9 +286,19 @@ final class InMemoryChatStore: ChatStore {
         lock.lock(); defer { lock.unlock() }
         return messages.values
             .filter { $0.kind == MessageKind.channel && $0.receivedMs >= sinceMs }
-            .sorted { $0.receivedMs < $1.receivedMs }
+            .sorted(by: Self.chronological)
             .prefix(limit)
             .map { $0 }
+    }
+
+    /// The real store orders by `received_ms, msg_id`; a fake that sorted on the timestamp alone
+    /// would not, because `sorted` is not stable and the input is a Dictionary whose order depends
+    /// on the per-process hash seed. Two messages stored in the same millisecond would then come
+    /// back in either order, which is a flaky test rather than a property of the system.
+    private static func chronological(_ lhs: MessageRecord, _ rhs: MessageRecord) -> Bool {
+        lhs.receivedMs == rhs.receivedMs
+            ? ByteOps.toHex(lhs.msgId) < ByteOps.toHex(rhs.msgId)
+            : lhs.receivedMs < rhs.receivedMs
     }
 
     func saveSession(_ record: SessionRecord) throws {
