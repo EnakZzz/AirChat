@@ -38,6 +38,12 @@ count of outgoing messages that received a DELIVERY_ACK, so the harness can asse
   8. both sides decrypted the other's private message, by exact text  (cross-platform E2EE)
   9. both sides received a delivery ACK                    (notification path, both directions)
 
+`--connect-first` replaces phases 2 with the tap path instead of the scripted send: each side taps
+the first person it can see, the way a user does, and the run asserts that both sides ended up
+linked and that both were asked to compare that person's safety code. Phase 2 and this mode are
+alternatives - one launch cannot both send a scripted message and tap somebody - so a full
+verification runs the harness twice.
+
 Usage
 -----
     # both phones unlocked and connected to this Mac
@@ -45,6 +51,7 @@ Usage
     python3 tools/cross_device_test.py --timeout 90
     python3 tools/cross_device_test.py --android-apk ../android/app/build/outputs/apk/debug/app-debug.apk
     python3 tools/cross_device_test.py --ios-udid <IOS_DEVICE_UDID>
+    python3 tools/cross_device_test.py --connect-first        # exercise the tap path
 
 The device identifiers are discovered automatically, so neither a UDID nor a serial number has to
 be written down anywhere - which also keeps them out of the repository.
@@ -238,6 +245,11 @@ def main() -> int:
     parser.add_argument("--android-apk", help="install this APK before testing")
     parser.add_argument("--ios-app", help="install this .app before testing")
     parser.add_argument("--timeout", type=int, default=75, help="seconds to wait for a ready link")
+    parser.add_argument(
+        "--connect-first",
+        action="store_true",
+        help="tap the first nearby person instead of sending a scripted message",
+    )
     parser.add_argument("--work-dir", default="/tmp/airchat-cross-device-test")
     args = parser.parse_args()
 
@@ -280,15 +292,28 @@ def main() -> int:
     run(adb + ["shell", "am", "force-stop", args.android_package])
     run(adb + ["logcat", "-c"])
 
+    ios_env = {"AIRCHAT_SELFTEST": IOS_SELF_TEST}
+    android_start = adb + [
+        "shell", "am", "start", "-n", f"{args.android_package}/{args.android_activity}",
+        "--es", "airchat_selftest", ANDROID_SELF_TEST,
+    ]
+    if args.connect_first:
+        # The Android extra travels through the device's own shell, so it is passed as a plain
+        # boolean flag with no metacharacters in it.
+        ios_env = {"AIRCHAT_CONNECT_FIRST": "1"}
+        android_start = adb + [
+            "shell", "am", "start", "-n", f"{args.android_package}/{args.android_activity}",
+            "--ez", "airchat_connect_first", "true",
+        ]
+
     ios_process = subprocess.Popen(
         ["xcrun", "devicectl", "device", "process", "launch", "--console",
          "--terminate-existing", "--device", ios_udid,
-         "-e", json.dumps({"AIRCHAT_SELFTEST": IOS_SELF_TEST}),
+         "-e", json.dumps(ios_env),
          args.ios_bundle],
         stdout=open(ios_log, "w"), stderr=subprocess.STDOUT, text=True,
     )
-    run(adb + ["shell", "am", "start", "-n", f"{args.android_package}/{args.android_activity}",
-               "--es", "airchat_selftest", ANDROID_SELF_TEST])
+    run(android_start)
     android_process = subprocess.Popen(
         adb + ["logcat", "-v", "brief"], stdout=open(android_log, "w"),
         stderr=subprocess.STDOUT, text=True,
@@ -300,7 +325,14 @@ def main() -> int:
         while time.time() < deadline:
             ios_state = latest_state(ios_log, "ios") or ios_state
             android_state = latest_state(android_log, "android") or android_state
-            if (ready_state(ios_state) and ready_state(android_state)
+            if args.connect_first:
+                # The tap path is done once both sides are linked and both have been asked to
+                # compare a safety code.
+                if (ready_state(ios_state) and ready_state(android_state)
+                        and ios_state.get("verifyPrompts", 0) >= 1
+                        and android_state.get("verifyPrompts", 0) >= 1):
+                    break
+            elif (ready_state(ios_state) and ready_state(android_state)
                     and exchange_complete(ios_state, IOS_EXPECTED)
                     and exchange_complete(android_state, ANDROID_EXPECTED)):
                 break
@@ -326,13 +358,14 @@ def main() -> int:
     failures: list[str] = []
     # Checked before anything else: a script that did not arrive intact explains every downstream
     # "message never arrived" symptom, and costs a whole round to re-diagnose otherwise.
-    if not spec_delivered(ios_log, IOS_SELF_TEST):
-        failures.append("iOS did not receive the full self-test script")
-    if not spec_delivered(android_log, ANDROID_SELF_TEST):
-        failures.append(
-            "Android did not receive the full self-test script - `adb shell` truncates an intent "
-            "extra at an unquoted '|', so keep the step separator shell-safe"
-        )
+    if not args.connect_first:
+        if not spec_delivered(ios_log, IOS_SELF_TEST):
+            failures.append("iOS did not receive the full self-test script")
+        if not spec_delivered(android_log, ANDROID_SELF_TEST):
+            failures.append(
+                "Android did not receive the full self-test script - `adb shell` truncates an intent "
+                "extra at an unquoted '|', so keep the step separator shell-safe"
+            )
     if ios_state is None:
         failures.append("iOS produced no heartbeat")
     if android_state is None:
@@ -367,7 +400,16 @@ def main() -> int:
                     "crypto implementations do not agree, see docs/protocol.md section 10"
                 )
 
-    if not failures:
+    if not failures and args.connect_first:
+        # The tap path: linked, and both sides asked to compare the code. Messaging is covered by the
+        # ordinary run, and asserting it here would only re-test what the other mode proves.
+        for state, name in ((ios_state, "iOS"), (android_state, "Android")):
+            if state.get("verifyPrompts", 0) < 1:
+                failures.append(
+                    f"{name} was never asked to verify a safety code - the tap did not reach the node"
+                )
+
+    if not failures and not args.connect_first:
         ios_link = ready_state(ios_state)
         android_link = ready_state(android_state)
         for state, expected, name in ((ios_state, IOS_EXPECTED, "iOS"), (android_state, ANDROID_EXPECTED, "Android")):
@@ -401,6 +443,10 @@ def main() -> int:
         return 1
 
     print("RESULT: PASS")
+    if args.connect_first:
+        log(f"  mode                  : tap the first nearby person")
+        log(f"  verify prompts        : iOS={ios_state.get('verifyPrompts')}, "
+            f"Android={android_state.get('verifyPrompts')}")
     log(f"  mutual discovery      : iOS nearby={ios_state['nearby']}, Android nearby={android_state['nearby']}")
     log(f"  link established      : iOS(central={ios_link['central']}, mtu={ios_link['mtu']}) "
         f"<-> Android(central={android_link['central']}, mtu={android_link['mtu']})")

@@ -49,6 +49,11 @@ final class AppContainer {
         if let spec = ProcessInfo.processInfo.environment["AIRCHAT_SELFTEST"], !spec.isEmpty {
             runSelfTest(spec)
         }
+        // Taps the first person that shows up, so the harness can drive the same path a user does
+        // instead of only the messaging path.
+        if ProcessInfo.processInfo.environment["AIRCHAT_CONNECT_FIRST"] == "1" {
+            connectFirstPeer()
+        }
         #endif
     }
 
@@ -90,6 +95,28 @@ final class AppContainer {
                     case .rejected(let reason): logger.log("SelfTest", "private send rejected: \(reason)")
                     }
                 }
+            }
+        }
+    }
+
+    /// Debug-only: taps the first person that appears in the nearby list, exactly the way a user
+    /// would, and stops there. The safety-code prompt that follows is the assertion the harness
+    /// makes, so this deliberately does not confirm anything on the user's behalf.
+    func connectFirstPeer() {
+        Task { [node, logger] in
+            let deadline = Date().addingTimeInterval(45)
+            while Date() < deadline, node.state.nearby.isEmpty {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            guard let peer = node.state.nearby.first else {
+                logger.log("SelfTest", "connect-first found nobody nearby")
+                return
+            }
+            switch node.requestConnect(peerHandle: peer.label) {
+            case .started:
+                logger.log("SelfTest", "connect-first -> started with \(peer.label)")
+            case .rejected(let reason):
+                logger.log("SelfTest", "connect-first rejected: \(reason)")
             }
         }
     }

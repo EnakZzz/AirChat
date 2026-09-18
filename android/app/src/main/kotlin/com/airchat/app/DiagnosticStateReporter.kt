@@ -32,6 +32,7 @@ class DiagnosticStateReporter(
     // `delivered` on both sides exercises the notification path in both directions.
     private val lock = Any()
     private var channelInbound = 0
+    private var verifyPrompts = 0
     private var privateInbound = 0
     private var deliveredOutbound = 0
     private var lastChannelText = ""
@@ -57,6 +58,11 @@ class DiagnosticStateReporter(
                         if (event.status == MessageStatus.DELIVERED) {
                             synchronized(lock) { deliveredOutbound++ }
                         }
+                    }
+
+                    is NodeEvent.VerifyRequested -> {
+                        // Proves the tap-driven prompt path ran, which the message counters cannot.
+                        synchronized(lock) { verifyPrompts++ }
                     }
 
                     else -> Unit
@@ -86,6 +92,10 @@ class DiagnosticStateReporter(
             append("\"self\":\"").append(state.deviceIdHex).append("\",")
             append("\"status\":\"").append(state.status.name.lowercase()).append("\",")
             append("\"nearby\":").append(state.nearby.size).append(',')
+            append("\"nearbyLabels\":[").append(
+                state.nearby.joinToString(",") { "\"" + escape(it.label) + "\"" },
+            ).append("],")
+            append("\"verifyPrompts\":").append(verifyPrompts).append(',')
             append("\"channel\":").append(channel).append(',')
             append("\"private\":").append(priv).append(',')
             append("\"delivered\":").append(delivered).append(',')

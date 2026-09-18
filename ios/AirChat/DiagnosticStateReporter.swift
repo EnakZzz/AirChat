@@ -23,6 +23,7 @@ final class DiagnosticStateReporter {
     private var channelInbound = 0
     private var privateInbound = 0
     private var deliveredOutbound = 0
+    private var verifyPrompts = 0
     private var lastChannelText = ""
     private var lastPrivateText = ""
 
@@ -44,6 +45,9 @@ final class DiagnosticStateReporter {
                 }
             case .messageStatusChanged(_, let status):
                 if status == MessageStatus.delivered { self.deliveredOutbound += 1 }
+            case .verifyRequested:
+                // Proves the tap-driven prompt path ran, which the message counters cannot.
+                self.verifyPrompts += 1
             default:
                 break
             }
@@ -78,6 +82,10 @@ final class DiagnosticStateReporter {
             + "\"self\":\"\(state.deviceIdHex)\","
             + "\"status\":\"\(statusName(state.status))\","
             + "\"nearby\":\(state.nearby.count),"
+            + "\"nearbyLabels\":["
+            + state.nearby.map { "\"\(self.escaped($0.label))\"" }.joined(separator: ",")
+            + "],"
+            + "\"verifyPrompts\":\(verifyPrompts),"
             + "\"channel\":\(channelInbound),"
             + "\"private\":\(privateInbound),"
             + "\"delivered\":\(deliveredOutbound),"
@@ -87,12 +95,15 @@ final class DiagnosticStateReporter {
         FileHandle.standardError.write(Data(line.utf8))
     }
 
-    private func quoted(_ value: String) -> String {
-        let escaped = value
+    /// Escapes a value for embedding in the heartbeat JSON.
+    private func escaped(_ value: String) -> String {
+        value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        return "\"\(escaped)\""
     }
+
+    /// The same value as a JSON string literal.
+    private func quoted(_ value: String) -> String { "\"\(escaped(value))\"" }
 
     private func statusName(_ status: ChatStatus) -> String {
         switch status {

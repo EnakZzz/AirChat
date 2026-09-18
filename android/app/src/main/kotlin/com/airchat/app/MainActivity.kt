@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val SELF_TEST_EXTRA = "airchat_selftest"
+        const val CONNECT_FIRST_EXTRA = "airchat_connect_first"
     }
 
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
@@ -40,6 +41,9 @@ class MainActivity : ComponentActivity() {
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (debuggable) {
             intent?.getStringExtra(SELF_TEST_EXTRA)?.takeIf { it.isNotEmpty() }?.let(container::runSelfTest)
+            // Taps the first person that shows up, so the harness can drive the same path a user
+            // does instead of only the messaging path.
+            if (intent?.getBooleanExtra(CONNECT_FIRST_EXTRA, false) == true) container.connectFirstPeer()
         }
 
         setContent {

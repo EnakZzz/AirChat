@@ -128,6 +128,24 @@ class AirChatContainer(context: Context) {
         }
     }
 
+    /**
+     * Debug-only: taps the first person that appears in the nearby list, exactly the way a user
+     * would, and stops there. The safety-code prompt that follows is the assertion the harness
+     * makes, so this deliberately does not confirm anything on the user's behalf.
+     */
+    fun connectFirstPeer() {
+        scope.launch {
+            val peer = withTimeoutOrNull(SELF_TEST_TIMEOUT_MS) {
+                node.state.first { it.nearby.isNotEmpty() }.nearby.first()
+            }
+            if (peer == null) {
+                logger.log(TAG, "connect-first found nobody nearby")
+                return@launch
+            }
+            logger.log(TAG, "connect-first -> " + node.requestConnect(peer.label))
+        }
+    }
+
     private companion object {
         const val TAG = "SelfTest"
         const val SEPARATOR = ","
