@@ -151,6 +151,7 @@ public final class AirChatNode: LinkSessionListener {
     private let capabilities: Int
     private let maxLinks: Int
     private let pendingConnectMs: Int64
+    private let scanWindowMs: Int64
 
     private let queue = DispatchQueue(label: "app.airchat.node")
     private let stateLock = NSLock()
@@ -228,6 +229,7 @@ public final class AirChatNode: LinkSessionListener {
         self.capabilities = capabilities
         self.maxLinks = maxLinks
         self.pendingConnectMs = pendingConnectMs
+        self.scanWindowMs = scanWindowMs
     }
 
     // ---------------------------------------------------------------- lifecycle
