@@ -2,13 +2,13 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "com.airchat.data"
-    compileSdk = 36
+    // Compose 1.12 (BOM 2026.09.00) requires compiling against API 37.
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 31
@@ -19,11 +19,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    sourceSets {
-        getByName("main") {
-            kotlin.srcDir("src/main/kotlin")
-        }
-    }
 }
 
 kotlin {

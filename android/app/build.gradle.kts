@@ -2,13 +2,13 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
 android {
     namespace = "com.airchat.app"
-    compileSdk = 36
+    // Compose 1.12 (BOM 2026.09.00) requires compiling against API 37.
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.airchat.app"
@@ -16,7 +16,6 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
-        resourceConfigurations += listOf("zh", "en")
     }
 
     buildTypes {
@@ -42,6 +41,11 @@ android {
         compose = true
     }
 
+    androidResources {
+        // Only the two languages the app ships strings for; AGP 9 moved this off defaultConfig.
+        localeFilters += listOf("zh", "en")
+    }
+
     packaging {
         resources.excludes += setOf(
             "/META-INF/{AL2.0,LGPL2.1}",
@@ -50,9 +54,6 @@ android {
     }
 
     sourceSets {
-        getByName("main") {
-            kotlin.srcDir("src/main/kotlin")
-        }
     }
 }
 
@@ -79,6 +80,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material3.window.size)
+    // Compose Material3 dropped its transitive dependency on the icon artifacts, and they are
+    // frozen at 1.7.8, so the handful of icons the UI uses has to be asked for explicitly.
+    implementation(libs.androidx.compose.material.icons.extended)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

@@ -108,7 +108,7 @@ import java.time.format.DateTimeFormatter
  * The five states a person's row can be in, declared in display order: whoever needs a decision
  * comes first, then whoever is reachable, then whoever is merely visible.
  */
-enum class NearbyState(@StringRes val labelRes: Int) {
+enum class NearbyState(@param:StringRes val labelRes: Int) {
     UNVERIFIED(R.string.nearby_state_unverified),
     REJECTED(R.string.nearby_state_rejected),
     TRUSTED(R.string.nearby_state_trusted),
@@ -500,7 +500,7 @@ private fun StatusCard(state: NodeState) {
 @Composable
 private fun NearbyRowItem(row: NearbyRow, onClick: () -> Unit) {
     ListItem(
-        headlineContent = {
+        content = {
             Text(row.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
         supportingContent = {
@@ -643,7 +643,7 @@ private fun ConversationList(state: ChatUiState, onSelect: (String) -> Unit) {
             LazyColumn {
                 items(state.conversations, key = { it.peerIdHex }) { conversation ->
                     ListItem(
-                        headlineContent = {
+                        content = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(conversation.nickname, modifier = Modifier.weight(1f))
                                 if (conversation.connected) {
@@ -968,7 +968,7 @@ private fun SettingsScreen(
             }
             item {
                 ListItem(
-                    headlineContent = { Text("后台保持连接") },
+                    content = { Text("后台保持连接") },
                     supportingContent = { Text("以前台服务保持蓝牙连接，锁屏后仍可收到消息") },
                     trailingContent = {
                         Switch(checked = serviceEnabled, onCheckedChange = onServiceEnabledChange)
@@ -977,7 +977,7 @@ private fun SettingsScreen(
             }
             item {
                 ListItem(
-                    headlineContent = { Text(stringResource(R.string.settings_device_id)) },
+                    content = { Text(stringResource(R.string.settings_device_id)) },
                     supportingContent = {
                         Text(
                             state.deviceIdHex.ifEmpty { "初始化中…" },
@@ -990,7 +990,7 @@ private fun SettingsScreen(
                 item { SectionTitle(stringResource(R.string.settings_links_title)) }
                 items(state.links, key = { it.linkId }) { link ->
                     ListItem(
-                        headlineContent = {
+                        content = {
                             Text(link.nickname ?: link.peerHandle ?: link.linkId, maxLines = 1)
                         },
                         supportingContent = {
@@ -1017,13 +1017,13 @@ private fun SettingsScreen(
             }
             item {
                 ListItem(
-                    headlineContent = { Text("存储策略") },
+                    content = { Text("存储策略") },
                     supportingContent = { Text(stringResource(R.string.settings_retention)) },
                 )
             }
             item {
                 ListItem(
-                    headlineContent = { Text("iOS 兼容性说明") },
+                    content = { Text("iOS 兼容性说明") },
                     supportingContent = { Text(stringResource(R.string.settings_ios_note)) },
                 )
             }
