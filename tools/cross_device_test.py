@@ -349,10 +349,21 @@ class DeviceEnv:
             )
         return process, path
 
+    #: Every phase forgets stored safety-code verdicts before it starts.
+    #:
+    #: A verdict is a user decision - and a REJECTED one deliberately blocks 1:1 sending - so a
+    #: phone that was used to reject a peer earlier would fail the messaging phase for a reason that
+    #: has nothing to do with the code under test. Clearing them needs no reinstall, which would also
+    #: drop the Bluetooth permission and stall the run on a system dialog.
+    CLEAR_TRUST_IOS = {"AIRCHAT_CLEAR_TRUST": "1"}
+    CLEAR_TRUST_ANDROID = ["--ez", "airchat_clear_trust", "true"]
+
     def restart_both(self, tag: str, ios_env: dict[str, str], android_args: list[str]):
         run(self.adb + ["shell", "am", "force-stop", self.args.android_package])
-        ios_process, ios_log = self.launch_ios(tag, ios_env)
-        android_process, android_log = self.start_android(android_args, tag)
+        ios_process, ios_log = self.launch_ios(tag, {**ios_env, **self.CLEAR_TRUST_IOS})
+        android_process, android_log = self.start_android(
+            android_args + self.CLEAR_TRUST_ANDROID, tag
+        )
         return ios_process, android_process, ios_log, android_log
 
     def stop(self, handles) -> None:
@@ -500,14 +511,8 @@ def phase_tap(env: DeviceEnv) -> Outcome:
     outcome = Outcome("tap")
     processes = env.restart_both(
         "tap",
-        # The verdicts are cleared as part of the phase: a code that has already been confirmed is
-        # not offered again, by design, and clearing app data to observe a first comparison would
-        # also drop the Bluetooth permission and stall the suite on a system dialog.
-        ios_env={"AIRCHAT_CONNECT_FIRST": "1", "AIRCHAT_CLEAR_TRUST": "1"},
-        android_args=[
-            "--ez", "airchat_connect_first", "true",
-            "--ez", "airchat_clear_trust", "true",
-        ],
+        ios_env={"AIRCHAT_CONNECT_FIRST": "1"},
+        android_args=["--ez", "airchat_connect_first", "true"],
     )
     try:
         ios, android, ok = env.wait_for(
@@ -636,10 +641,12 @@ def phase_background(env: DeviceEnv) -> Outcome:
             outcome.notes.append(
                 f"Android (background) got {android2.get('lastPrivate')!r} and iOS got the ack"
             )
-            if (android2 or {}).get("lastPrivate") != IOS_EXPECTED[1]:
+            # The iOS side is the one that sends in this phase, so this is the text it sent.
+            expected_text = IOS_SELF_TEST.split("private:")[1]
+            if (android2 or {}).get("lastPrivate") != expected_text:
                 outcome.failures.append(
                     f"Android decrypted {android2.get('lastPrivate')!r} while backgrounded, expected "
-                    f"{IOS_EXPECTED[1]!r}"
+                    f"{expected_text!r}"
                 )
         outcome.failures += check_link(ios2, android2)
     finally:

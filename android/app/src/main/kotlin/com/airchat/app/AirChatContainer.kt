@@ -116,7 +116,7 @@ class AirChatContainer(context: Context) {
                 // The outcome is logged rather than ignored: a rejected send is otherwise completely
                 // invisible and looks identical to "the peer never received it".
                 when (kind) {
-                    "channel" -> logger.log(TAG, "channel -> " + node.postChannelMessage(text))
+                    "channel" -> logger.log(TAG, "channel " + describe(node.postChannelMessage(text)))
                     "private" -> {
                         val peer = node.state.value.links
                             .firstOrNull { it.ready && it.peerIdHex != null }
@@ -124,12 +124,24 @@ class AirChatContainer(context: Context) {
                         if (peer == null) {
                             logger.log(TAG, "private skipped: no ready link")
                         } else {
-                            logger.log(TAG, "private -> " + node.sendPrivateMessage(peer, text))
+                            logger.log(TAG, "private " + describe(node.sendPrivateMessage(peer, text)))
                         }
                     }
                 }
             }
         }
+    }
+
+    /**
+     * The reason a send was refused, spelled out.
+     *
+     * `SendResult` has no useful `toString`, and the reason is the whole diagnosis: "rejected
+     * because the user marked this peer's code as mismatched" and "rejected because the peer is not
+     * nearby" look identical when all the log says is the class name.
+     */
+    private fun describe(result: SendResult): String = when (result) {
+        is SendResult.Sent -> "sent"
+        is SendResult.Rejected -> "rejected: " + result.reason
     }
 
     /**
