@@ -116,7 +116,7 @@ cd ios/AirChatKit && swift test
 | Android ↔ iOS 相互发现 | ✅ 双向发现（Android 能读到 iOS 的广播，iOS 能读到 Android 的 presence 块） |
 | Android ↔ iOS 链路建立 + 握手 | ✅ **`tools/cross_device_test.py` 判定 PASS**：链路就绪、双方 identity 互指、角色镜像 |
 | **Android ↔ iOS 端到端加密一致性** | ✅ 两端独立算出**相同**的 6 位安全码（实测 `476390`），证明 Kotlin/JCA 与 Swift/CryptoKit 字节级一致 |
-| 扫描改为用户动作（30 秒窗口自动停） | ✅ 两端实现一致；单测覆盖"启动不扫/窗口自动关闭/提前停止不影响既有链路" |
+| 扫描改为用户动作（30 秒窗口自动停） | ✅ 两端实现一致；单测覆盖"启动不扫/窗口自动关闭/提前停止不影响既有链路"；真机两端心跳均为 `status=scanning` 且互见 |
 | 「附近」页交互（点人即连 / 核对 / 进对话） | ✅ 两端实现一致；真机 `--connect-first` **PASS**（双方各自点人后 `verifyPrompts` 均为 1）；单测另覆盖点到已信任者不弹、点击过期、去重串联、上限拒绝、句柄跨角色变化、两候选不猜 |
 | 消息收发（公共频道 / 1:1） | ✅ **双向均通**：公频文本互达；1:1 密文双向解密成功（`secret-from-android` / `secret-from-ios`），且双向都收到 `DELIVERY_ACK` |
 | 锁屏后台收消息 | ⏳ 未验证 |
