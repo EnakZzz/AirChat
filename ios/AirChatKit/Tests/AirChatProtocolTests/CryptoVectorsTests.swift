@@ -146,8 +146,6 @@ final class CryptoVectorsTests: XCTestCase {
         let bobDevice = TestVectors.hex(object["bobDeviceIdHex"])
         let alicePublic = TestVectors.hex(object["alicePublicKeyHex"])
         let bobPublic = TestVectors.hex(object["bobPublicKeyHex"])
-        let initiatorNonce = TestVectors.hex(object["initiatorHelloNonceHex"])
-        let responderNonce = TestVectors.hex(object["responderHelloNonceHex"])
         let expectedCode = TestVectors.string(object["expectedCode"])
 
         let code = AirChatCrypto.safetyNumber(
@@ -155,46 +153,32 @@ final class CryptoVectorsTests: XCTestCase {
             deviceIdB: bobDevice,
             publicKeyA: alicePublic,
             publicKeyB: bobPublic,
-            initiatorHelloNonce: initiatorNonce,
-            responderHelloNonce: responderNonce
         )
         XCTAssertEqual(expectedCode, code)
         XCTAssertEqual(6, code.count)
         XCTAssertTrue(code.allSatisfy { $0.isNumber })
 
         // Swapping the device/key argument order must not change the code.
-        let swapped = AirChatCrypto.safetyNumber(
-            deviceIdA: bobDevice,
-            deviceIdB: aliceDevice,
-            publicKeyA: bobPublic,
-            publicKeyB: alicePublic,
-            initiatorHelloNonce: initiatorNonce,
-            responderHelloNonce: responderNonce
-        )
-        XCTAssertEqual(expectedCode, swapped)
-
-        // Swapping initiator/responder nonces must change the code.
-        let swappedNonces = AirChatCrypto.safetyNumber(
-            deviceIdA: aliceDevice,
-            deviceIdB: bobDevice,
-            publicKeyA: alicePublic,
-            publicKeyB: bobPublic,
-            initiatorHelloNonce: responderNonce,
-            responderHelloNonce: initiatorNonce
-        )
-        XCTAssertNotEqual(expectedCode, swappedNonces)
-
-        let secondPair = try XCTUnwrap(object["secondPair"] as? [String: Any])
         XCTAssertEqual(
-            TestVectors.string(secondPair["expectedCode"]),
+            expectedCode,
             AirChatCrypto.safetyNumber(
-                deviceIdA: aliceDevice,
-                deviceIdB: bobDevice,
-                publicKeyA: alicePublic,
-                publicKeyB: bobPublic,
-                initiatorHelloNonce: TestVectors.hex(secondPair["initiatorHelloNonceHex"]),
-                responderHelloNonce: TestVectors.hex(secondPair["responderHelloNonceHex"])
+                deviceIdA: bobDevice,
+                deviceIdB: aliceDevice,
+                publicKeyA: bobPublic,
+                publicKeyB: alicePublic
             )
         )
+
+        // A different pair must produce a different code, or the vector would hold even for a
+        // function that ignored its inputs.
+        let other = try XCTUnwrap(object["otherPair"] as? [String: Any])
+        let otherCode = AirChatCrypto.safetyNumber(
+            deviceIdA: TestVectors.hex(other["aliceDeviceIdHex"]),
+            deviceIdB: TestVectors.hex(other["bobDeviceIdHex"]),
+            publicKeyA: alicePublic,
+            publicKeyB: bobPublic
+        )
+        XCTAssertEqual(TestVectors.string(other["expectedCode"]), otherCode)
+        XCTAssertNotEqual(expectedCode, otherCode)
     }
 }

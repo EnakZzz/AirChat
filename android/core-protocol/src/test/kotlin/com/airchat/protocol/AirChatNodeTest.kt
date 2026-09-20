@@ -518,6 +518,24 @@ class AirChatNodeTest {
     }
 
     @Test
+    fun `two handshakes between the same peers produce the same safety code`() = withHarness { h ->
+        // The code is a function of the two identities, so a reconnect - or the second of two
+        // concurrent handshakes - can never show the user a different number for the same person.
+        h.connect()
+        h.awaitBothReady()
+        val first = h.nodeA.state.value.links.single().safetyCode
+
+        h.links!!.first.close()
+        awaitUntil("the old link is gone") { h.nodeA.state.value.links.isEmpty() }
+        h.connect()
+        h.awaitBothReady()
+        val second = h.nodeA.state.value.links.single().safetyCode
+
+        assertNotNull(first)
+        assertEquals("a reconnect must not change the code the user compared", first, second)
+    }
+
+    @Test
     fun `scanning is a bounded user action rather than a default`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {

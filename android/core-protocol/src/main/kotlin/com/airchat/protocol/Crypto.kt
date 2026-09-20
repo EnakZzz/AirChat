@@ -203,13 +203,20 @@ object AirChatCrypto {
      * 6-digit safety number shown to both users. Identical inputs must yield an identical
      * string on both platforms; a mismatch means a man in the middle or a broken port.
      */
+    /**
+     * The 6-digit code two people compare in person.
+     *
+     * A function of the two identities only - device ids and public keys - and deliberately not of
+     * the handshake in progress. Two devices can legitimately have two concurrent handshakes (both
+     * users tap at once, or a reconnect races a fresh connection), and a code that mixed in
+     * per-handshake randomness would then show one peer two different numbers. Identity binding also
+     * matches Signal, and keeps a verdict the user already made meaningful across reconnects.
+     */
     fun safetyNumber(
         deviceIdA: ByteArray,
         deviceIdB: ByteArray,
         publicKeyA: ByteArray,
         publicKeyB: ByteArray,
-        initiatorHelloNonce: ByteArray,
-        responderHelloNonce: ByteArray,
     ): String {
         val (firstDevice, secondDevice, firstKey, secondKey) = orderedPair(
             deviceIdA, deviceIdB, publicKeyA, publicKeyB,
@@ -220,8 +227,6 @@ object AirChatCrypto {
             secondDevice,
             firstKey,
             secondKey,
-            initiatorHelloNonce,
-            responderHelloNonce,
         )
         val digest = sha256(transcript)
         val value20 = ((digest[0].toInt() and 0xFF) shl 12) or

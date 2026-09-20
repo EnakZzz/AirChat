@@ -308,19 +308,17 @@ public final class LinkSession {
             publicKeyA: localIdentity.publicKeyBytes,
             publicKeyB: hello.publicKey
         )
+        // Identity-only on purpose: two concurrent handshakes with the same peer must not produce two
+        // different codes. See AirChatCrypto.safetyNumber.
         safetyCode = AirChatCrypto.safetyNumber(
             deviceIdA: localIdentity.deviceId,
             deviceIdB: hello.deviceId,
             publicKeyA: localIdentity.publicKeyBytes,
-            publicKeyB: hello.publicKey,
-            // The initiator always contributes the first nonce, whichever side we are.
-            initiatorHelloNonce: isInitiator ? myHelloNonce : hello.helloNonce,
-            responderHelloNonce: isInitiator ? hello.helloNonce : myHelloNonce
+            publicKeyB: hello.publicKey
         )
         state = .ready
-        // The nonces are logged because a safety code that disagrees between two devices which
-        // otherwise share a session key can only come from the two ends ordering (or holding)
-        // different nonces, and nothing else in the logs would show it.
+        // The handshake nonces are logged so a session can be identified in the logs; they no longer
+        // take part in the safety code.
         let initiatorNonce = isInitiator ? myHelloNonce : hello.helloNonce
         let responderNonce = isInitiator ? hello.helloNonce : myHelloNonce
         logger.log(

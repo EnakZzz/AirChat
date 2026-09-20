@@ -91,8 +91,16 @@ def session_key(my_priv, peer_pub_raw: bytes, dev_a: bytes, dev_b: bytes,
     return HKDF(algorithm=hashes.SHA256(), length=32, salt=salt, info=info).derive(ikm)
 
 
-def safety_number(dev_a: bytes, dev_b: bytes, pub_a: bytes, pub_b: bytes,
-                  initiator_nonce: bytes, responder_nonce: bytes) -> str:
+def safety_number(dev_a: bytes, dev_b: bytes, pub_a: bytes, pub_b: bytes) -> str:
+    """The 6-digit code two people compare in person.
+
+    Deliberately a function of the two *identities* only - device ids and public keys - and not of
+    the handshake that happens to be in progress. Two devices can legitimately end up with two
+    concurrent handshakes (both tap at the same moment, or a reconnect races a fresh connection),
+    and a code that depends on per-handshake randomness would then show one peer two different
+    numbers. Binding the code to identities also matches what Signal does, and it means a verdict a
+    user already made stays meaningful across reconnects.
+    """
     first_dev, second_dev = sorted_pair(dev_a, dev_b)
     by_dev = {dev_a: pub_a, dev_b: pub_b}
     first_pub, second_pub = by_dev[first_dev], by_dev[second_dev]
@@ -100,7 +108,6 @@ def safety_number(dev_a: bytes, dev_b: bytes, pub_a: bytes, pub_b: bytes,
         SAFETY_PREFIX
         + first_dev + second_dev
         + first_pub + second_pub
-        + initiator_nonce + responder_nonce
     )
     digest = hashlib.sha256(transcript).digest()
     value20 = (digest[0] << 12) | (digest[1] << 4) | (digest[2] >> 4)
@@ -279,25 +286,22 @@ def gen_safety():
         "bobPublicKeyHex": pub_raw(
             ec.derive_private_key(int.from_bytes(BOB_PRIV, "big"), ec.SECP256R1())
         ).hex(),
-        "initiatorDeviceIdHex": BOB_DEV.hex(),
-        "responderDeviceIdHex": ALICE_DEV.hex(),
-        "initiatorHelloNonceHex": INITIATOR_NONCE.hex(),
-        "responderHelloNonceHex": RESPONDER_NONCE.hex(),
         "transcriptPrefixHex": SAFETY_PREFIX.hex(),
         "expectedCode": safety_number(
             ALICE_DEV, BOB_DEV,
             pub_raw(ec.derive_private_key(int.from_bytes(ALICE_PRIV, "big"), ec.SECP256R1())),
             pub_raw(ec.derive_private_key(int.from_bytes(BOB_PRIV, "big"), ec.SECP256R1())),
-            INITIATOR_NONCE, RESPONDER_NONCE,
         ),
-        "secondPair": {
-            "initiatorHelloNonceHex": bytes.fromhex("0000000000000001").hex(),
-            "responderHelloNonceHex": bytes.fromhex("0000000000000002").hex(),
+        # A different pair must produce a different code - the vectors above would still hold if the
+        # function ignored its inputs entirely.
+        "otherPair": {
+            "aliceDeviceIdHex": "00112233445566778899aabbccddeeff",
+            "bobDeviceIdHex": "ffeeddccbbaa99887766554433221100",
             "expectedCode": safety_number(
-                ALICE_DEV, BOB_DEV,
+                bytes.fromhex("00112233445566778899aabbccddeeff"),
+                bytes.fromhex("ffeeddccbbaa99887766554433221100"),
                 pub_raw(ec.derive_private_key(int.from_bytes(ALICE_PRIV, "big"), ec.SECP256R1())),
                 pub_raw(ec.derive_private_key(int.from_bytes(BOB_PRIV, "big"), ec.SECP256R1())),
-                bytes.fromhex("0000000000000001"), bytes.fromhex("0000000000000002"),
             ),
         },
     }

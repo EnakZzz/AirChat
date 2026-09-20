@@ -576,6 +576,24 @@ final class AirChatNodeTests: XCTestCase {
         }
     }
 
+func testTwoHandshakesBetweenTheSamePeersProduceTheSameSafetyCode() throws {
+        try withHarness { harness in
+            // The code is a function of the two identities, so a reconnect - or the second of two
+            // concurrent handshakes - can never show the user a different number for one person.
+            harness.connect()
+            waitForReady(harness)
+            let first = try XCTUnwrap(harness.nodeA.state.links.first?.safetyCode)
+
+            harness.links?.0.close()
+            waitUntil("the old link is gone") { harness.nodeA.state.links.isEmpty }
+            harness.connect()
+            waitForReady(harness)
+            let second = try XCTUnwrap(harness.nodeA.state.links.first?.safetyCode)
+
+            XCTAssertEqual(first, second, "a reconnect must not change the code the user compared")
+        }
+    }
+
     func testTappingAPeerThatIsAlreadyLinkedDoesNotStartASecondConnection() throws {
         try withHarness { harness in
             // The tap names the handle we scanned; the link reports a different handle for the same

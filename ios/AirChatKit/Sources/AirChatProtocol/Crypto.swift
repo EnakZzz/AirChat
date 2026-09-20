@@ -132,13 +132,18 @@ public enum AirChatCrypto {
 
     /// 6-digit safety number shown to both users. Identical inputs must yield an identical string
     /// on both platforms; a mismatch means a man in the middle or a broken port.
+    /// The 6-digit code two people compare in person.
+    ///
+    /// A function of the two identities only - device ids and public keys - and deliberately not of
+    /// the handshake in progress. Two devices can legitimately have two concurrent handshakes (both
+    /// users tap at once, or a reconnect races a fresh connection), and a code that mixed in
+    /// per-handshake randomness would then show one peer two different numbers. Identity binding also
+    /// matches Signal, and keeps a verdict the user already made meaningful across reconnects.
     public static func safetyNumber(
         deviceIdA: Data,
         deviceIdB: Data,
         publicKeyA: Data,
-        publicKeyB: Data,
-        initiatorHelloNonce: Data,
-        responderHelloNonce: Data
+        publicKeyB: Data
     ) -> String {
         let pair = orderedPair(
             deviceIdA: deviceIdA,
@@ -151,9 +156,7 @@ public enum AirChatCrypto {
             pair.firstDevice,
             pair.secondDevice,
             pair.firstKey,
-            pair.secondKey,
-            initiatorHelloNonce,
-            responderHelloNonce
+            pair.secondKey
         )
         let digest = [UInt8](sha256(transcript))
         let value20 = (Int(digest[0]) << 12) | (Int(digest[1]) << 4) | (Int(digest[2]) >> 4)

@@ -315,7 +315,7 @@ Peripheral 侧发送通知必须做流控：
 | 84+n | u8 | capabilities |
 | 85+n | u8[8] | helloNonce（随机） |
 
-HELLO_ACK 使用完全相同的结构。`helloNonce` 仅用于安全码转录（§10.3）。
+HELLO_ACK 使用完全相同的结构。`helloNonce` 是每会话随机值，仅用于日志区分会话，**不参与安全码**（§10.3）。
 
 握手时序：
 
@@ -446,16 +446,22 @@ OKM  = HKDF-SHA256(IKM, salt, info, 32)                // RFC 5869，会话密�
 transcript = "AirChat-v1-safety"                       // 18 字节 ASCII
            ‖ first.deviceId  ‖ second.deviceId
            ‖ first.publicKey‖ second.publicKey
-           ‖ initiatorHelloNonce (8)
-           ‖ responderHelloNonce (8)
 h      = SHA-256(transcript)
 value20 = (h[0] << 12) | (h[1] << 4) | (h[2] >> 4)     // 20 bit
 code    = value20 % 1000000                            // 0..999999
 显示    = 6 位十进制零填充，如 "004271"
 ```
 
-`initiator` 为 Central（先发 HELLO 的一方），`responder` 为 Peripheral。双方必须得到
-相同的 6 位码；不一致说明存在中间人或实现不一致，必须警告用户。
+**安全码只由双方身份（deviceId 与公钥）决定，与握手无关**（v1.1 起；v1.0 曾把两个
+`helloNonce` 也拼进转录）。原因是一次实测事故：两台设备同时点击互连时会合法地产生两条并发链路，
+每端各保留一条，于是**同一个人出现了两个不同的 6 位码**——而会话密钥只由身份派生，消息照样能解密，
+所以这个矛盾只会在用户眼前表现为"码对不上"。改用身份绑定后：
+
+- 同一对设备无论握手几次、哪一端先发起，码都不变（与 Signal 的 safety number 同思路）；
+- 用户已经核对过的结论在重连后依然成立；
+- `helloNonce` 仍然在 HELLO/HELLO_ACK 里交换（保留字段，用于日志中区分会话），但**不参与**安全码。
+
+双方必须得到相同的 6 位码；不一致说明存在中间人或实现不一致，必须警告用户。
 
 信任流程：
 

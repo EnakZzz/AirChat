@@ -131,38 +131,29 @@ class CryptoVectorsTest {
         val bobDevice = TestVectors.hex(vector["bobDeviceIdHex"]!!)
         val alicePublic = TestVectors.hex(vector["alicePublicKeyHex"]!!)
         val bobPublic = TestVectors.hex(vector["bobPublicKeyHex"]!!)
-        val initiatorNonce = TestVectors.hex(vector["initiatorHelloNonceHex"]!!)
-        val responderNonce = TestVectors.hex(vector["responderHelloNonceHex"]!!)
         val expectedCode = vector["expectedCode"]!!.jsonPrimitive.content
 
-        val code = AirChatCrypto.safetyNumber(
-            aliceDevice, bobDevice, alicePublic, bobPublic, initiatorNonce, responderNonce,
-        )
+        val code = AirChatCrypto.safetyNumber(aliceDevice, bobDevice, alicePublic, bobPublic)
         assertEquals(expectedCode, code)
         assertEquals(6, code.length)
         assertTrue("code must be numeric", code.all { it.isDigit() })
 
         // Swapping the device/key argument order must not change the code.
-        val swapped = AirChatCrypto.safetyNumber(
-            bobDevice, aliceDevice, bobPublic, alicePublic, initiatorNonce, responderNonce,
-        )
-        assertEquals(expectedCode, swapped)
-
-        // Swapping initiator/responder nonces must change the code.
-        val swappedNonces = AirChatCrypto.safetyNumber(
-            aliceDevice, bobDevice, alicePublic, bobPublic, responderNonce, initiatorNonce,
-        )
-        assertFalse("nonce order is part of the transcript", swappedNonces == expectedCode)
-
-        val secondPair = vector["secondPair"]!!.jsonObject
-        val secondExpected = secondPair["expectedCode"]!!.jsonPrimitive.content
         assertEquals(
-            secondExpected,
-            AirChatCrypto.safetyNumber(
-                aliceDevice, bobDevice, alicePublic, bobPublic,
-                TestVectors.hex(secondPair["initiatorHelloNonceHex"]!!),
-                TestVectors.hex(secondPair["responderHelloNonceHex"]!!),
-            ),
+            expectedCode,
+            AirChatCrypto.safetyNumber(bobDevice, aliceDevice, bobPublic, alicePublic),
         )
+
+        // A different pair must produce a different code, or the vector would hold even for a
+        // function that ignored its inputs.
+        val other = vector["otherPair"]!!.jsonObject
+        val otherCode = AirChatCrypto.safetyNumber(
+            TestVectors.hex(other["aliceDeviceIdHex"]!!),
+            TestVectors.hex(other["bobDeviceIdHex"]!!),
+            alicePublic,
+            bobPublic,
+        )
+        assertEquals(other["expectedCode"]!!.jsonPrimitive.content, otherCode)
+        assertFalse("a different pair must not share a code", otherCode == expectedCode)
     }
 }
