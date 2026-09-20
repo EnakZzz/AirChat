@@ -695,7 +695,16 @@ def main() -> int:
     parser.add_argument("--android-activity", default=DEFAULT_ACTIVITY)
     parser.add_argument("--android-apk", help="install this APK before testing")
     parser.add_argument("--ios-app", help="install this .app before testing")
-    parser.add_argument("--timeout", type=int, default=90, help="seconds per wait")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=150,
+        help=(
+            "seconds per wait. Generous because a phase that restarts one side has to wait out the "
+            "reconnect churn, and reporting 'the message never arrived' when it was never sent is a "
+            "worse failure than waiting."
+        ),
+    )
     parser.add_argument("--work-dir", default="/tmp/airchat-device-test")
     parser.add_argument(
         "--phases",

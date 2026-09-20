@@ -83,7 +83,11 @@ final class AppContainer {
         // shows up much later as a message that never arrived.
         logger.log("SelfTest", "selftest spec received: \(spec)")
         Task { [node] in
-            let deadline = Date().addingTimeInterval(45)
+            // Generous on purpose: a phase that restarts one side first has to wait out the
+            // reconnect churn (both ends connect, the duplicate is resolved, the loser backs off),
+            // which is tens of seconds. Giving up early made a phase fail as "the message never
+            // arrived" when in fact the message was never sent.
+            let deadline = Date().addingTimeInterval(120)
             while Date() < deadline, node.state.readyLinkCount == 0 {
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
@@ -121,7 +125,7 @@ final class AppContainer {
     /// makes, so this deliberately does not confirm anything on the user's behalf.
     func connectFirstPeer() {
         Task { [node, logger] in
-            let deadline = Date().addingTimeInterval(45)
+            let deadline = Date().addingTimeInterval(120)
             while Date() < deadline, node.state.nearby.isEmpty {
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }

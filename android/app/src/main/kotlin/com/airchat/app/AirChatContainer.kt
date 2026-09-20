@@ -189,7 +189,15 @@ class AirChatContainer(context: Context) {
     private companion object {
         const val TAG = "SelfTest"
         const val SEPARATOR = ","
-        const val SELF_TEST_TIMEOUT_MS = 45_000L
+        /**
+         * How long a scripted send waits for a link before giving up.
+         *
+         * Generous on purpose: a phase that restarts one side first has to wait out the reconnect
+         * churn (both ends connect, the duplicate is resolved, the loser backs off), which is tens of
+         * seconds. Giving up early made a phase fail as "the message never arrived" when in fact the
+         * message was never sent.
+         */
+        const val SELF_TEST_TIMEOUT_MS = 120_000L
 
         /** Debug hooks keep looking for as long as a harness run may last. */
         const val DEBUG_SCAN_WINDOW_MS = 300_000L
