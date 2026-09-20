@@ -136,6 +136,26 @@ def discover_android_serial() -> str | None:
     return None
 
 
+def ensure_adb_healthy(adb: list[str]) -> bool:
+    """A wedged adb server looks exactly like a phone that is ignoring us.
+
+    Every device command then blocks until its own timeout, which buries the real cause inside
+    whichever phase happened to run first - and costs a whole round to diagnose. Ten seconds and one
+    server restart tell the two apart.
+    """
+    for attempt in (1, 2):
+        try:
+            if "ok" in run(adb + ["shell", "echo", "ok"], timeout=10).stdout:
+                return True
+        except subprocess.TimeoutExpired:
+            pass
+        log(f"note: adb did not answer within 10s (attempt {attempt}); restarting the server")
+        run(["adb", "kill-server"], timeout=30)
+        run(["adb", "start-server"], timeout=60)
+        time.sleep(2)
+    return False
+
+
 def grant_android_permissions(adb: list[str], package: str) -> None:
     """Grants the runtime permissions a fresh install would otherwise wait for.
 
@@ -713,6 +733,12 @@ def main() -> int:
     log(f"iPhone {ios_udid}  |  Android {android_serial}  |  phases: {', '.join(phases)}")
 
     adb = ["adb", "-s", android_serial]
+    if not ensure_adb_healthy(adb):
+        log(
+            "FAIL: adb is not answering. Replug the Android phone, dismiss any USB dialog it shows, "
+            "and retry."
+        )
+        return 2
 
     if args.reset:
         log("uninstalling both apps to start from a clean state")
