@@ -119,6 +119,7 @@ cd ios/AirChatKit && swift test
 | 扫描改为用户动作（30 秒窗口自动停） | ✅ 两端实现一致；单测覆盖"启动不扫/窗口自动关闭/提前停止不影响既有链路"；真机两端心跳均为 `status=scanning` 且互见 |
 | 「附近」页交互（点人即连 / 核对 / 进对话） | ✅ 两端实现一致；真机 `--connect-first` **PASS**（双方各自点人后 `verifyPrompts` 均为 1）；单测另覆盖点到已信任者不弹、点击过期、去重串联、上限拒绝、句柄跨角色变化、两候选不猜 |
 | 消息收发（公共频道 / 1:1） | ✅ **双向均通**：公频文本互达；1:1 密文双向解密成功（`secret-from-android` / `secret-from-ios`），且双向都收到 `DELIVERY_ACK` |
+| 真机 5 场景套件（`link` / `messages` / `tap` / `reopen` / `background`） | ✅ **一次运行全绿**：安全码两端一致、双向消息与 ACK、点人即连并弹出核对、杀 App 后 3 秒恢复链路、**后台的 Android 仍能收消息并回 ACK** |
 | 锁屏后台收消息 | ⏳ 未验证 |
 
 跨机自动化测试：`python3 tools/cross_device_test.py`（在接了两台手机的 Mac 上运行）。它会拉起两端、

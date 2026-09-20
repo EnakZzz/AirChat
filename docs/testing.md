@@ -34,6 +34,9 @@ pwsh -NoProfile -File tools/run_tests.ps1 -WithBuild
 | `reopen` | 杀掉 Android App 再启动 | 链路回到同一个对端（冷启动恢复） |
 | `background` | Android 切后台后收消息 | 后台仍能**收到、解密并回 ACK**（前台服务的作用） |
 
+2026-09-20 真机实跑：五阶段一次全绿（`RESULT: PASS`），安全码 `940673` 两端一致、杀 App 后 3 秒
+恢复、后台的 Android 收到并 ACK。
+
 ```bash
 python3 tools/cross_device_test.py                       # 全部 5 个阶段
 python3 tools/cross_device_test.py --phases link,tap      # 只跑某几个
